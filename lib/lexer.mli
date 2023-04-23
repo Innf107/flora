@@ -1,6 +1,7 @@
 type lexical_error =
   | UnexpectedChar of char
   | UnexpectedEOF
+  | UnterminatedString
 
 exception LexicalError of lexical_error
 

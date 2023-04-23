@@ -5,6 +5,7 @@ open Effect.Deep
 type lexical_error =
   | UnexpectedChar of char
   | UnexpectedEOF
+  | UnterminatedString
 
 exception LexicalError of lexical_error
 
@@ -148,13 +149,13 @@ and lex_float accum state =
       advance state;
       lex_float (char :: accum) state
   | _ ->
-      advance state;
       emit state (NUMBER (float_of_string (string_of_reverse_list accum)));
       lex state
 
 and lex_string accum state =
   match peek_char state with
-  | Some '"' | None ->
+  | None -> raise (LexicalError UnterminatedString)
+  | Some '"' ->
       emit state (STRING (string_of_reverse_list accum));
       lex state
   | Some char -> lex_string (char :: accum) state
