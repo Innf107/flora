@@ -19,7 +19,7 @@ let eval_literal = function
   | StringLit str -> String str
 
 (* TODO: This is not tail recursive, so memory usage will be linear in program execution.
-   It shouldn't segfault though thanks to OCaml 5 *)
+   It shouldn't overflow though thanks to OCaml 5 *)
 let rec eval env = function
   | Var (loc, name) -> begin
       match NameMap.find_opt name env.variables with

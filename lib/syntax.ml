@@ -27,8 +27,20 @@ let pretty_literal = function
   | StringLit str -> "\"" ^ str ^ "\""
 
 let rec pretty_expr = function
-| Var (_, name) -> name
-| App (_, fun_expr, args) -> pretty_expr fun_expr ^ "(" ^ String.concat ", " (List.map pretty_expr args) ^ ")"
-| Lambda (_, parameters, body) -> "(\\" ^ String.concat ", " parameters ^ " -> " ^ pretty_expr body ^ ")"
-| Let (_, name, body, rest) -> "let " ^ name ^ " = " ^ pretty_expr body ^ ";\n" ^ pretty_expr rest
-| Literal (_, literal) -> pretty_literal literal
+  | Var (_, name) -> name
+  | App (_, fun_expr, args) ->
+      pretty_expr fun_expr ^ "("
+      ^ String.concat ", " (List.map pretty_expr args)
+      ^ ")"
+  | Lambda (_, parameters, body) ->
+      "(\\" ^ String.concat ", " parameters ^ " -> " ^ pretty_expr body ^ ")"
+  | Let (_, name, body, rest) ->
+      "let " ^ name ^ " = " ^ pretty_expr body ^ ";\n" ^ pretty_expr rest
+  | Literal (_, literal) -> pretty_literal literal
+
+let rec pretty_value = function
+  | Number f -> string_of_float f
+  | String str -> "\"" ^ str ^ "\""
+  | Closure (_, params, expr) ->
+      "(\\[closure](" ^ String.concat ", " params ^ ") -> " ^ pretty_expr expr
+      ^ ")"

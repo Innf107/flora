@@ -7,5 +7,5 @@ let eval_string env program_text =
     Parser.main
   in
   let syntax = parse (Lexer.run ~filename:"<interactive>" program_text) in
-  print_endline (pretty_expr syntax);
-  todo __LOC__
+  let result_env, result = Eval.eval env syntax in
+  result_env, result
