@@ -5,3 +5,5 @@ type t = {
   end_line : int;
   end_column : int;
 }
+
+val pretty : t -> string

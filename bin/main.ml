@@ -24,27 +24,44 @@ let rec parse_args options = function
       | None -> parse_args { options with file_to_run = Some arg } rest
       | Some _ -> error_usage "Too many arguments")
 
+let run_repl options =
+  let env = Syntax.{ variables = NameMap.empty } in
+  let rec go env =
+    match Bestline.bestline "\x1b[95m\x1b[38;2;255;0;255mλ>\x1b[0m " with
+    | None -> ()
+    | Some line ->
+        Error.handle
+          ~handler:(fun error ->
+            prerr_endline ("ERROR: " ^ Error.pretty error);
+            go env)
+          begin
+            fun () ->
+              let env, result = Driver.eval_string env line in
+              print_endline ("- " ^ Syntax.pretty_value result);
+              go env
+          end
+  in
+  go env
+
 let () =
   let initial_options = { file_to_run = None } in
   let options = parse_args initial_options (List.tl (Array.to_list Sys.argv)) in
 
   match options.file_to_run with
-  | None -> Util.todo __LOC__
+  | None -> run_repl options
   | Some file -> begin
-      let contents =
-        In_channel.with_open_text "test.flora" In_channel.input_all
-      in
-      match
-        Driver.eval_string Syntax.{ variables = NameMap.empty } contents
-      with
-      | _env, value -> print_endline (Syntax.pretty_value value)
-      | exception Lexer.LexicalError err -> begin
-          match err with
-          | UnexpectedEOF ->
-              print_endline "Lexical error: Unexpected end of file"
-          | UnterminatedString ->
-              print_endline "Lexical error: Unterminated string literal"
-          | UnexpectedChar char ->
-              Printf.printf "Lexical error: Unexpected character: '%c'\n" char
+      Error.handle
+        ~handler:(fun error ->
+          prerr_endline ("ERROR: " ^ Error.pretty error);
+          exit 1)
+        begin
+          fun () ->
+            let contents =
+              In_channel.with_open_text "test.flora" In_channel.input_all
+            in
+            let _env, value =
+              Driver.eval_string Syntax.{ variables = NameMap.empty } contents
+            in
+            print_endline (Syntax.pretty_value value)
         end
     end

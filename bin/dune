@@ -1,4 +1,4 @@
 (executable
  (public_name flora)
  (name main)
- (libraries flora))
+ (libraries flora bestline))
