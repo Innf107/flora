@@ -7,4 +7,4 @@ type t = {
 }
 
 let pretty t =
-  t.file ^ ":" ^ string_of_int t.start_line ^ ":" ^ string_of_int t.end_line
+  t.file ^ ":" ^ string_of_int t.start_line ^ ":" ^ string_of_int t.start_column

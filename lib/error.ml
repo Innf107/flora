@@ -25,4 +25,8 @@ let pretty = function
         "Incorrect number of arguments passed to function.\n"
       ^ "    Expected: " ^ string_of_int expected ^ "\n"
       ^ "      Actual: " ^ string_of_int actual
+    | InvalidOperatorArgs { operator; expected; actual } -> 
+        "Invalid arguments to primitive operator " ^ operator ^ ".\n"
+      ^ "    Expected arguments of the form: (" ^ String.concat ", " expected ^ ")\n"
+      ^ "                            Actual: (" ^ String.concat ", " (List.map (function None -> "_" | Some x -> Syntax.pretty_value x) actual) ^ ")"
   end

@@ -8,8 +8,20 @@ type eval_error =
       expected : int;
       actual : int;
     }
+  | InvalidOperatorArgs of {
+      operator : string;
+      expected : string list;
+      actual : value option list;
+    }
 
 exception EvalError of loc * eval_error
+
+let invalid_operator_args loc operator expected actual =
+  raise
+    (EvalError
+       ( loc,
+         InvalidOperatorArgs
+           { operator; expected; actual = List.map (fun x -> Some x) actual } ))
 
 let bind_variable name value env =
   { env with variables = NameMap.add name value env.variables }
@@ -17,6 +29,15 @@ let bind_variable name value env =
 let eval_literal = function
   | NumberLit x -> Number x
   | StringLit str -> String str
+
+let rec equal_value left_value right_value =
+  match (left_value, right_value) with
+  | Number x, Number y -> Float.equal x y
+  | String x, String y -> String.equal x y
+  | Bool x, Bool y -> Bool.equal x y
+  | List xs, List ys ->
+      List.compare_lengths xs ys = 0 && List.for_all2 equal_value xs ys
+  | _ -> false
 
 (* TODO: This is not tail recursive, so memory usage will be linear in program execution.
    It shouldn't overflow though thanks to OCaml 5 *)
@@ -55,3 +76,107 @@ let rec eval env = function
       let _, value = eval env body in
       eval (bind_variable name value env) rest
   | Literal (loc, literal) -> (env, eval_literal literal)
+  | Binop (loc, left, op, right) -> (env, eval_binop env loc left op right)
+  | If (loc, condition, then_branch, else_branch) ->
+      let _, condition_value = eval env condition in
+      begin
+        match condition_value with
+        | Bool true -> eval env then_branch
+        | Bool false -> eval env else_branch
+        | _ -> invalid_operator_args loc "if" [ "Bool" ] [ condition_value ]
+      end
+
+and eval_binop env loc left op right =
+  match op with
+  | #strict_binop as op ->
+      let _, left_value = eval env left in
+      let _, right_value = eval env right in
+      begin
+        match op with
+        | `Add -> begin
+            match (left_value, right_value) with
+            | Number x, Number y -> Number (x +. y)
+            | _ ->
+                invalid_operator_args loc "(+)" [ "Number"; "Number" ]
+                  [ left_value; right_value ]
+          end
+        | `Subtract -> begin
+            match (left_value, right_value) with
+            | Number x, Number y -> Number (x -. y)
+            | _ ->
+                invalid_operator_args loc "(-)" [ "Number"; "Number" ]
+                  [ left_value; right_value ]
+          end
+        | `Multiply -> begin
+            match (left_value, right_value) with
+            | Number x, Number y -> Number (x *. y)
+            | _ ->
+                invalid_operator_args loc "(*)" [ "Number"; "Number" ]
+                  [ left_value; right_value ]
+          end
+        | `Divide -> begin
+            match (left_value, right_value) with
+            | Number x, Number y -> Number (x /. y)
+            | _ ->
+                invalid_operator_args loc "(/)" [ "Number"; "Number" ]
+                  [ left_value; right_value ]
+          end
+        | `Less -> begin
+            match (left_value, right_value) with
+            | Number x, Number y -> Bool (x < y)
+            | _ ->
+                invalid_operator_args loc "(<)" [ "Number"; "Number" ]
+                  [ left_value; right_value ]
+          end
+        | `LessOrEqual -> begin
+            match (left_value, right_value) with
+            | Number x, Number y -> Bool (x <= y)
+            | _ ->
+                invalid_operator_args loc "(<=)" [ "Number"; "Number" ]
+                  [ left_value; right_value ]
+          end
+        | `Equal -> Bool (equal_value left_value right_value)
+        | `NotEqual -> Bool (not (equal_value left_value right_value))
+        | `GreaterOrEqual -> begin
+            match (left_value, right_value) with
+            | Number x, Number y -> Bool (x >= y)
+            | _ ->
+                invalid_operator_args loc "(>=)" [ "Number"; "Number" ]
+                  [ left_value; right_value ]
+          end
+        | `Greater -> begin
+            match (left_value, right_value) with
+            | Number x, Number y -> Bool (x > y)
+            | _ ->
+                invalid_operator_args loc "(>)" [ "Number"; "Number" ]
+                  [ left_value; right_value ]
+          end
+        | `Cons -> begin
+            match right_value with
+            | List values -> List (left_value :: values)
+            | _ ->
+                invalid_operator_args loc "(:)" [ "_"; "List(_)" ]
+                  [ left_value; right_value ]
+          end
+        | `Concat -> begin
+            match (left_value, right_value) with
+            | String x, String y -> String (x ^ y)
+            | List left, List right -> List (left @ right)
+            | _ ->
+                invalid_operator_args loc "(~)" [ "List(_)"; "List(_)" ]
+                  [ left_value; right_value ]
+          end
+      end
+  | #lazy_binop as op -> begin
+      match op with
+      | `Or -> begin
+          match eval env left with
+          | _, Bool true -> Bool true
+          | _, Bool false ->
+              let _, result = eval env right in
+              result
+          | _, value ->
+              invalid_operator_args loc "(||)" [ "Bool"; "_" ] [ value ]
+        end
+      | `And -> begin match eval env left with _, _ -> todo __LOC__ end
+    end

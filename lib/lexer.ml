@@ -9,6 +9,10 @@ type lexical_error =
 
 exception LexicalError of lexical_error
 
+let unexpected = function
+  | None -> raise (LexicalError UnexpectedEOF)
+  | Some char -> raise (LexicalError (UnexpectedChar char))
+
 type lex_state = {
   buffer : Bytes.t;
   mutable buffer_index : int;
@@ -59,6 +63,9 @@ let next_char state =
 
 let ident_of_string = function
   | "let" -> Parser.LET
+  | "if" -> Parser.IF
+  | "then" -> Parser.THEN
+  | "else" -> Parser.ELSE
   | ident -> Parser.IDENT ident
 
 let is_whitespace char = String.contains " \t\n" char
@@ -101,9 +108,7 @@ let rec lex state =
       | ')' -> advance_emit RPAREN
       | '{' -> advance_emit LBRACE
       | '}' -> advance_emit RBRACE
-      | '=' -> advance_emit EQUALS
-      | ';' -> advance_emit SEMI
-      | ',' -> advance_emit COMMA
+      | '+' -> advance_emit PLUS
       | '-' ->
           advance state;
           begin
@@ -111,12 +116,65 @@ let rec lex state =
             | Some '-' ->
                 advance state;
                 lex_line_comment state
-            | Some '>' ->
-                advance state;
-                emit state ARROW;
+            | Some '>' -> advance_emit ARROW
+            | _ ->
+                emit state MINUS;
                 lex state
-            | _ -> raise (LexicalError (UnexpectedChar '-'))
           end
+      | '*' -> advance_emit STAR
+      | '/' -> advance_emit SLASH
+      | '<' ->
+          advance state;
+          begin
+            match peek_char state with
+            | Some '=' -> advance_emit LESSEQUAL
+            | _ ->
+                emit state LESS;
+                lex state
+          end
+      | '=' ->
+          advance state;
+          begin
+            match peek_char state with
+            | Some '=' -> advance_emit DOUBLEEQUAL
+            | _ ->
+                emit state EQUALS;
+                lex state
+          end
+      | '!' ->
+          advance state;
+          begin
+            match peek_char state with
+            | Some '=' -> advance_emit NOTEQUAL
+            | other -> unexpected other
+          end
+      | '>' ->
+          advance state;
+          begin
+            match peek_char state with
+            | Some '=' -> advance_emit GREATEREQUAL
+            | _ ->
+                emit state GREATER;
+                lex state
+          end
+      | ':' -> advance_emit COLON
+      | '~' -> advance_emit TILDE
+      | '&' ->
+          advance state;
+          begin
+            match peek_char state with
+            | Some '&' -> advance_emit AND
+            | other -> unexpected other
+          end
+      | '|' ->
+          advance state;
+          begin
+            match peek_char state with
+            | Some '|' -> advance_emit OR
+            | other -> unexpected other
+          end
+      | ';' -> advance_emit SEMI
+      | ',' -> advance_emit COMMA
       | char -> raise (LexicalError (UnexpectedChar char)))
 
 and lex_line_comment state =
@@ -156,9 +214,12 @@ and lex_string accum state =
   match peek_char state with
   | None -> raise (LexicalError UnterminatedString)
   | Some '"' ->
+      advance state;
       emit state (STRING (string_of_reverse_list accum));
       lex state
-  | Some char -> lex_string (char :: accum) state
+  | Some char ->
+      advance state;
+      lex_string (char :: accum) state
 
 let run ~filename string =
   let state : lex_state =

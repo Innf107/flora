@@ -36,7 +36,10 @@ let run_repl options =
             go env)
           begin
             fun () ->
-              let env, result = Driver.eval_string env line in
+              let env, result = Driver.eval_string ~filename:None env line in
+
+              (* TODO: Print this differently if the output is not a tty *)
+
               print_endline ("- " ^ Syntax.pretty_value result);
               go env
           end
@@ -60,7 +63,7 @@ let () =
               In_channel.with_open_text "test.flora" In_channel.input_all
             in
             let _env, value =
-              Driver.eval_string Syntax.{ variables = NameMap.empty } contents
+              Driver.eval_string ~filename:(Some"test.flora") Syntax.{ variables = NameMap.empty } contents
             in
             print_endline (Syntax.pretty_value value)
         end
