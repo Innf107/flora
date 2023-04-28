@@ -22,6 +22,7 @@ let loc (start_pos, end_pos) =
 %token IF "if"
 %token THEN "then"
 %token ELSE "else"
+%token NIL "nil"
 %token EQUALS "="
 %token SEMI ";"
 %token COMMA ","
@@ -43,7 +44,7 @@ let loc (start_pos, end_pos) =
 %token OR "||"
 %token EOF
 
-%start <expr> main
+%start <statement list> main
 
 %%
 
@@ -53,7 +54,7 @@ sep_trailing(sep, p):
 | p sep sep_trailing(sep, p)    { $1 :: $3 }
 
 main:
-| expr EOF { $1 }
+| sep_trailing(";", statement) EOF { $1 }
 
 expr:
 | expr1 binop0 expr { Binop(loc $loc, $1, $2, $3) }
@@ -109,13 +110,17 @@ expr_leaf:
 | IDENT { Var(loc $loc, $1) }
 | literal { Literal(loc $loc, $1) }
 | expr "(" sep_trailing(",", expr) ")" { App(loc $loc, $1, $3) }
-| "let" IDENT "=" expr ";" expr { Let(loc $loc, $2, $4, $6) }
 | "λ" IDENT "->" expr { Lambda(loc $loc, [$2], $4) }
 | "λ" "(" sep_trailing(",", IDENT) ")" "->" expr { Lambda(loc $loc, $3, $6) }
 | "if" expr  "then" expr "else" expr { If(loc $loc, $2, $4, $6) }
 | "(" expr ")" { $2 }
-| "{" expr "}" { $2 }
+| "{" sep_trailing(";", statement) "}" { Sequence($2) }
+
+statement:
+| "let" IDENT "=" expr { Let(loc $loc, $2, $4) }
+| expr { RunExpr($1) }
 
 literal:
 | NUMBER { NumberLit($1) }
 | STRING { StringLit($1) }
+| "nil"  { NilLit }

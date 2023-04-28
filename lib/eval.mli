@@ -12,4 +12,6 @@ type eval_error =
     
 exception EvalError of loc * eval_error
 
-val eval : env -> expr -> env * value
+val eval : env -> expr -> value
+
+val eval_statements : env -> statement list -> env * value

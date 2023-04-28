@@ -29,6 +29,7 @@ let bind_variable name value env =
 let eval_literal = function
   | NumberLit x -> Number x
   | StringLit str -> String str
+  | NilLit -> Nil
 
 let rec equal_value left_value right_value =
   match (left_value, right_value) with
@@ -45,14 +46,12 @@ let rec eval env = function
   | Var (loc, name) -> begin
       match NameMap.find_opt name env.variables with
       | None -> raise (EvalError (loc, VarNotFound name))
-      | Some value -> (env, value)
+      | Some value -> value
     end
   | App (loc, function_expr, argument_exprs) -> begin
       match eval env function_expr with
-      | _, Closure (closure_env, closure_names, body) ->
-          let arguments =
-            List.map (fun arg -> snd (eval env arg)) argument_exprs
-          in
+      | Closure (closure_env, closure_names, body) ->
+          let arguments = List.map (eval env) argument_exprs in
 
           if List.compare_lengths closure_names arguments <> 0 then
             raise
@@ -69,28 +68,37 @@ let rec eval env = function
             in
             eval updated_closure_env body
           end
-      | _, value -> raise (EvalError (loc, TryingToCallNonFunction value))
+      | value -> raise (EvalError (loc, TryingToCallNonFunction value))
     end
-  | Lambda (loc, names, body) -> (env, Closure (env, names, body))
-  | Let (loc, name, body, rest) ->
-      let _, value = eval env body in
-      eval (bind_variable name value env) rest
-  | Literal (loc, literal) -> (env, eval_literal literal)
-  | Binop (loc, left, op, right) -> (env, eval_binop env loc left op right)
-  | If (loc, condition, then_branch, else_branch) ->
-      let _, condition_value = eval env condition in
-      begin
-        match condition_value with
-        | Bool true -> eval env then_branch
-        | Bool false -> eval env else_branch
-        | _ -> invalid_operator_args loc "if" [ "Bool" ] [ condition_value ]
-      end
+  | Lambda (loc, names, body) -> Closure (env, names, body)
+  | Literal (loc, literal) -> eval_literal literal
+  | Binop (loc, left, op, right) -> eval_binop env loc left op right
+  | If (loc, condition, then_branch, else_branch) -> begin
+      match eval env condition with
+      | Bool true -> eval env then_branch
+      | Bool false -> eval env else_branch
+      | condition_value ->
+          invalid_operator_args loc "if" [ "Bool" ] [ condition_value ]
+    end
+  | Sequence statements ->
+      let _env, value = eval_statements env statements in
+      value
+
+and eval_statements env = function
+  | [] -> (env, Nil)
+  | [ RunExpr expr ] -> (env, eval env expr)
+  | RunExpr expr :: rest ->
+      let _ = eval env expr in
+      eval_statements env rest
+  | Let (loc, name, body) :: rest ->
+      let value = eval env body in
+      eval_statements (bind_variable name value env) rest
 
 and eval_binop env loc left op right =
   match op with
   | #strict_binop as op ->
-      let _, left_value = eval env left in
-      let _, right_value = eval env right in
+      let left_value = eval env left in
+      let right_value = eval env right in
       begin
         match op with
         | `Add -> begin
@@ -171,12 +179,14 @@ and eval_binop env loc left op right =
       match op with
       | `Or -> begin
           match eval env left with
-          | _, Bool true -> Bool true
-          | _, Bool false ->
-              let _, result = eval env right in
-              result
-          | _, value ->
-              invalid_operator_args loc "(||)" [ "Bool"; "_" ] [ value ]
+          | Bool true -> Bool true
+          | Bool false -> eval env right
+          | value -> invalid_operator_args loc "(||)" [ "Bool"; "_" ] [ value ]
         end
-      | `And -> begin match eval env left with _, _ -> todo __LOC__ end
+      | `And -> begin
+          match eval env left with
+          | Bool true -> eval env right
+          | Bool false -> Bool false
+          | value -> invalid_operator_args loc "(&&)" [ "Bool"; "_" ] [ value ]
+        end
     end

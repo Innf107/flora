@@ -9,5 +9,4 @@ let eval_string ~filename env program_text =
   let filename = Option.value ~default:"<interactive>" filename in
 
   let syntax = parse (Lexer.run ~filename program_text) in
-  let result_env, result = Eval.eval env syntax in
-  result_env, result
+  Eval.eval_statements env syntax
