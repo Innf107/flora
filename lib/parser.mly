@@ -111,7 +111,7 @@ binop5:
 expr_leaf:
 | IDENT { Var(loc $loc, $1) }
 | literal { Literal(loc $loc, $1) }
-| expr "(" sep_trailing(",", expr) ")" { App(loc $loc, $1, $3) }
+| expr_leaf "(" sep_trailing(",", expr) ")" { App(loc $loc, $1, $3) }
 | "λ" IDENT "->" expr { Lambda(loc $loc, [$2], $4) }
 | "λ" "(" sep_trailing(",", IDENT) ")" "->" expr { Lambda(loc $loc, $3, $6) }
 | "if" expr  "then" expr "else" expr { If(loc $loc, $2, $4, $6) }
