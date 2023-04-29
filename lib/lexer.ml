@@ -181,7 +181,9 @@ let rec lex state =
       | char -> raise (LexicalError (UnexpectedChar char)))
 
 and lex_line_comment state =
-  match next_char state with Some '\n' -> lex state | _ -> lex state
+  match next_char state with 
+  |Some '\n' -> lex state 
+  | _ -> lex_line_comment state
 
 and lex_ident accum state =
   match peek_char state with
