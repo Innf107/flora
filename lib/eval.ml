@@ -23,8 +23,19 @@ let invalid_operator_args loc operator expected actual =
          InvalidOperatorArgs
            { operator; expected; actual = List.map (fun x -> Some x) actual } ))
 
+let bind_variables bindings env =
+  {
+    contents =
+      {
+        env.contents with
+        variables = NameMap.add_seq bindings env.contents.variables;
+      };
+    delta = { variables = NameMap.of_seq bindings };
+    previous = Some env;
+  }
+
 let bind_variable name value env =
-  { env with variables = NameMap.add name value env.variables }
+  bind_variables (List.to_seq [ (name, value) ]) env
 
 let eval_literal = function
   | NumberLit x -> Number x
@@ -44,7 +55,7 @@ let rec equal_value left_value right_value =
    It shouldn't overflow though thanks to OCaml 5 *)
 let rec eval env = function
   | Var (loc, name) -> begin
-      match NameMap.find_opt name env.variables with
+      match NameMap.find_opt name env.contents.variables with
       | None -> raise (EvalError (loc, VarNotFound name))
       | Some value -> value
     end
@@ -64,7 +75,9 @@ let rec eval env = function
                      } ))
           else begin
             let updated_closure_env =
-              List.fold_right2 bind_variable closure_names arguments closure_env
+              bind_variables
+                (Seq.zip (List.to_seq closure_names) (List.to_seq arguments))
+                closure_env
             in
             eval updated_closure_env body
           end
