@@ -23,6 +23,8 @@ let loc (start_pos, end_pos) =
 %token THEN "then"
 %token ELSE "else"
 %token NIL "nil"
+%token TRUE "true"
+%token FALSE "false"
 %token EQUALS "="
 %token SEMI ";"
 %token COMMA ","
@@ -121,6 +123,8 @@ statement:
 | expr { RunExpr($1) }
 
 literal:
-| NUMBER { NumberLit($1) }
-| STRING { StringLit($1) }
-| "nil"  { NilLit }
+| NUMBER    { NumberLit($1) }
+| STRING    { StringLit($1) }
+| "nil"     { NilLit }
+| "true"    { BoolLit(true) }
+| "false"   { BoolLit(false) }

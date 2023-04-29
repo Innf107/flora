@@ -5,9 +5,10 @@ module NameMap = Map.Make (String)
 type loc = Loc.t
 
 type literal =
+  | NilLit
   | NumberLit of float
   | StringLit of string
-  | NilLit
+  | BoolLit of bool
 
 type strict_binop =
   [ `Add
@@ -75,6 +76,7 @@ let pretty_literal = function
   | NumberLit f -> string_of_float f
   | StringLit str -> "\"" ^ str ^ "\""
   | NilLit -> "nil"
+  | BoolLit bool -> string_of_bool bool
 
 let pretty_binop : binop -> string = function
   | `Add -> "+"

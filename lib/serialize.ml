@@ -129,6 +129,176 @@ let write_env state env =
 
 let read_env = read_int
 
+let write_loc state Loc.{ file; start_line; start_column; end_line; end_column }
+    =
+  (* TODO: Share the string to reduce file size drastically *)
+  write_string state file;
+  write_int state start_line;
+  write_int state start_column;
+  write_int state end_line;
+  write_int state end_column
+
+let read_loc state =
+  let file = read_string state in
+  let start_line = read_int state in
+  let start_column = read_int state in
+  let end_line = read_int state in
+  let end_column = read_int state in
+  Loc.{ file; start_line; start_column; end_line; end_column }
+
+let write_literal state = function
+  | Syntax.NilLit -> write_byte state 0
+  | NumberLit float ->
+      write_byte state 1;
+      write_float state float
+  | StringLit str ->
+      write_byte state 2;
+      write_string state str
+  | BoolLit bool ->
+      write_byte state 3;
+      write_bool state bool
+
+let read_literal state =
+  match read_byte state with
+  | 0 -> Syntax.NilLit
+  | 1 ->
+      let float = read_float state in
+      NumberLit float
+  | 2 ->
+      let str = read_string state in
+      StringLit str
+  | 3 ->
+      let bool = read_bool state in
+      BoolLit bool
+  | tag -> raise (DeserializationError (InvalidTag { ty = "literal"; tag }))
+
+let write_binop state = function
+  | (`Add : binop) -> write_byte state 0
+  | `Subtract -> write_byte state 1
+  | `Multiply -> write_byte state 2
+  | `Divide -> write_byte state 3
+  | `Less -> write_byte state 4
+  | `LessOrEqual -> write_byte state 5
+  | `Equal -> write_byte state 6
+  | `NotEqual -> write_byte state 7
+  | `GreaterOrEqual -> write_byte state 8
+  | `Greater -> write_byte state 9
+  | `Cons -> write_byte state 10
+  | `Concat -> write_byte state 11
+  | `Or -> write_byte state 12
+  | `And -> write_byte state 13
+
+let read_binop state : binop =
+  match read_byte state with
+  | 0 -> `Add
+  | 1 -> `Subtract
+  | 3 -> `Multiply
+  | 4 -> `Divide
+  | 5 -> `Less
+  | 6 -> `LessOrEqual
+  | 7 -> `Equal
+  | 8 -> `NotEqual
+  | 9 -> `Greater
+  | 10 -> `Cons
+  | 11 -> `Concat
+  | 12 -> `Or
+  | 13 -> `And
+  | tag -> raise (DeserializationError (InvalidTag { ty = "binop"; tag }))
+
+let rec write_expr state = function
+  | Syntax.Var (loc, name) ->
+      write_byte state 0;
+      write_loc state loc;
+      write_string state name
+  | App (loc, expr, args) ->
+      write_byte state 1;
+      write_loc state loc;
+      write_expr state expr;
+      write_list write_expr state args
+  | Lambda (loc, params, body) ->
+      write_byte state 2;
+      write_loc state loc;
+      write_list write_string state params;
+      write_expr state body
+  | Literal (loc, literal) ->
+      write_byte state 3;
+      write_loc state loc;
+      write_literal state literal
+  | Binop (loc, left, binop, right) ->
+      write_byte state 4;
+      write_loc state loc;
+      write_expr state left;
+      write_binop state binop;
+      write_expr state right
+  | If (loc, condition, then_branch, else_branch) ->
+      write_byte state 5;
+      write_loc state loc;
+      write_expr state condition;
+      write_expr state then_branch;
+      write_expr state else_branch
+  | Sequence statements ->
+      write_byte state 6;
+      write_list write_statement state statements
+
+and write_statement state = function
+  | Let (loc, name, expr) ->
+      write_byte state 0;
+      write_loc state loc;
+      write_string state name;
+      write_expr state expr
+  | RunExpr expr ->
+      write_byte state 1;
+      write_expr state expr
+
+let rec read_expr state =
+  match read_byte state with
+  | 0 ->
+      let loc = read_loc state in
+      let name = read_string state in
+      Var (loc, name)
+  | 1 ->
+      let loc = read_loc state in
+      let expr = read_expr state in
+      let args = read_list read_expr state in
+      App (loc, expr, args)
+  | 2 ->
+      let loc = read_loc state in
+      let params = read_list read_string state in
+      let body = read_expr state in
+      Lambda (loc, params, body)
+  | 3 ->
+      let loc = read_loc state in
+      let literal = read_literal state in
+      Literal (loc, literal)
+  | 4 ->
+      let loc = read_loc state in
+      let left = read_expr state in
+      let binop = read_binop state in
+      let right = read_expr state in
+      Binop (loc, left, binop, right)
+  | 5 ->
+      let loc = read_loc state in
+      let condition = read_expr state in
+      let then_branch = read_expr state in
+      let else_branch = read_expr state in
+      If (loc, condition, then_branch, else_branch)
+  | 6 ->
+      let statements = read_list read_statement state in
+      Sequence statements
+  | tag -> raise (DeserializationError (InvalidTag { ty = "expr"; tag }))
+
+and read_statement state =
+  match read_byte state with
+  | 0 ->
+      let loc = read_loc state in
+      let name = read_string state in
+      let expr = read_expr state in
+      Let (loc, name, expr)
+  | 1 ->
+      let expr = read_expr state in
+      RunExpr expr
+  | tag -> raise (DeserializationError (InvalidTag { ty = "statement"; tag }))
+
 let rec write_value state = function
   | Syntax.Nil -> write_int state 0
   | Number f ->
@@ -147,7 +317,7 @@ let rec write_value state = function
       write_byte state 5;
       write_env state env;
       write_list write_string state parameters;
-      Util.todo __LOC__
+      write_expr state body
 
 let rec read_value state : read_value =
   let tag = read_byte state in
@@ -168,7 +338,7 @@ let rec read_value state : read_value =
   | 5 ->
       let env = read_env state in
       let params = read_list read_string state in
-      let body = Util.todo __LOC__ in
+      let body = read_expr state in
       Closure (env, params, body)
   | tag -> raise (DeserializationError (InvalidTag { ty = "value"; tag }))
 

@@ -41,6 +41,7 @@ let eval_literal = function
   | NumberLit x -> Number x
   | StringLit str -> String str
   | NilLit -> Nil
+  | BoolLit bool -> Bool bool
 
 let rec equal_value left_value right_value =
   match (left_value, right_value) with
