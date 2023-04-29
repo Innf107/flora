@@ -1,5 +1,8 @@
 open Syntax
 
+let deserialize_category, trace_deserialize =
+  Trace.make ~flag:"deserialize" ~prefix:"DESERIALIZE"
+
 type deserialization_error =
   | EOF
   | InvalidTag of {
@@ -56,15 +59,38 @@ let read_optional : (read_state -> 'a) -> read_state -> 'a option =
   | tag -> raise (DeserializationError (InvalidTag { ty = "optional"; tag }))
 
 let write_int state int =
-  let buffer = Bytes.create 8 in
-  Bytes.set_int64_le buffer 0 (Int64.of_int int);
-  Out_channel.output_bytes state.out_channel buffer
+  (* Integers < 128 are represented as a single byte where the least significant bit is 0.
+     This might seem like we loose a single bit of precision for 64 bit integers, but
+     because OCaml does pointer tagging as well, we actually don't!
+     `int`s are only 63 bit anyway, so we can store the remaining bit to store multibyte size information.
+     Also, the fact that integers are stored in little endian byte order is crucial, since this
+     ensures that the first byte we read contains the least significant bit *)
+  if int >= 0 && int < 128 then
+    (* int < 128 so the left shift will not destroy information *)
+    Out_channel.output_byte state.out_channel (int lsl 1)
+  else begin
+    let int64 = Int64.logor (Int64.shift_left (Int64.of_int int) 1) 1L in
+    let buffer = Bytes.create 8 in
+    Bytes.set_int64_le buffer 0 int64;
+    Out_channel.output_bytes state.out_channel buffer
+  end
 
 let read_int state =
-  let buffer = Bytes.create 8 in
-  match In_channel.input state.in_channel buffer 0 8 with
-  | 8 -> Int64.to_int (Bytes.get_int64_le buffer 0)
-  | _ -> raise (DeserializationError EOF)
+  match In_channel.input_byte state.in_channel with
+  | None -> raise (DeserializationError EOF)
+  | Some byte when byte land 1 = 0 ->
+      (* int < 128 *)
+      byte lsr 1
+  | Some initial_byte ->
+      let buffer = Bytes.create 8 in
+      Bytes.set buffer 0 (Char.chr initial_byte);
+      begin
+        match In_channel.input state.in_channel buffer 1 7 with
+        | 7 ->
+            Int64.to_int
+              (Int64.shift_right_logical (Bytes.get_int64_le buffer 0) 1)
+        | _ -> raise (DeserializationError EOF)
+      end
 
 let write_float state float =
   let buffer = Bytes.create 8 in
@@ -459,4 +485,11 @@ let deserialize_env in_channel =
         Closure (env, params, expr)
   in
 
-  fill_env main_index
+  let env = fill_env main_index in
+  trace_deserialize
+    (lazy
+      ("environment variables: ["
+      ^ String.concat ", "
+          (List.map fst (NameMap.bindings env.contents.variables))
+      ^ "]"));
+  env

@@ -9,8 +9,12 @@ type flora_options = {
 let usage =
   "Usage: flora [options] [file]\n" ^ "\n" ^ "    Options\n"
   ^ "      --help             Show this message\n"
-  ^ "      --write-env [FILE] Write the final evaluation environment to FILE\n"
-  ^ "      --read-env [FILE]  Read the initial evaluation environment from FILE"
+  ^ "      --write-env <FILE> Write the final evaluation environment to FILE\n"
+  ^ "      --read-env <FILE>  Read the initial evaluation environment from FILE\n"
+  ^ "\n"
+  ^ "      --trace <CATEGORY> Enable interpreter traces for debugging purposes."
+  ^ "                             Possible values: "
+  ^ String.concat ", " (Trace.get_categories ())
 
 let error_usage message =
   prerr_endline message;
@@ -31,6 +35,10 @@ let rec parse_args options = function
       let in_channel = open_in file in
       parse_args { options with read_env_from = Some in_channel } rest
   | [ "--read-env" ] -> error_usage "Option '--read-env' expects an argument"
+  | "--trace" :: category :: rest ->
+      if Trace.try_set_enabled category true then parse_args options rest
+      else error_usage ("Invalid trace category: '" ^ category ^ "'")
+  | [ "--trace" ] -> error_usage "Option '--trace' expects an argument"
   | arg :: _ when String.starts_with ~prefix:"-" arg ->
       error_usage ("Invalid option: '" ^ arg ^ "'")
   | arg :: rest -> (
@@ -67,17 +75,31 @@ let () =
   let initial_env =
     match options.read_env_from with
     | None -> Syntax.empty_env
-    | Some in_channel -> Serialize.deserialize_env in_channel
+    | Some in_channel -> (
+        try Serialize.deserialize_env in_channel
+        with Serialize.DeserializationError err ->
+          begin
+            match err with
+            | Serialize.EOF ->
+                prerr_endline
+                  "Unexpected end of file encountered while deserializing \
+                   environment"
+            | InvalidTag { ty; tag } ->
+                prerr_endline
+                  ("Error deserializing envirronment: Invalid tag for type '"
+                 ^ ty ^ "': " ^ string_of_int tag)
+          end;
+          exit 1)
   in
 
   match options.file_to_run with
-  | None -> 
-    let env = run_repl initial_env options in
-    begin match options.write_env_to with
-    | None -> ()
-    | Some out_channel ->
-      Serialize.serialize_env out_channel env
-    end
+  | None ->
+      let env = run_repl initial_env options in
+      begin
+        match options.write_env_to with
+        | None -> ()
+        | Some out_channel -> Serialize.serialize_env out_channel env
+      end
   | Some file -> begin
       Error.handle
         ~handler:(fun error ->
@@ -89,14 +111,13 @@ let () =
               In_channel.with_open_text file In_channel.input_all
             in
             let env, value =
-              Driver.eval_string ~filename:(Some file) initial_env
-                contents
+              Driver.eval_string ~filename:(Some file) initial_env contents
             in
-            begin match options.write_env_to with
-            | None -> ()
-            | Some out_channel ->
-              Serialize.serialize_env out_channel env
-            end;        
+            begin
+              match options.write_env_to with
+              | None -> ()
+              | Some out_channel -> Serialize.serialize_env out_channel env
+            end;
             print_endline (Syntax.pretty_value value)
         end
     end
