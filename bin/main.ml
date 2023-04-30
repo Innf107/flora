@@ -48,7 +48,7 @@ let rec parse_args options = function
 
 let run_repl env options =
   let rec go env =
-    match Bestline.bestline "\x1b[95m\x1b[38;2;255;0;255mλ>\x1b[0m " with
+    match Bestline.bestline_with_history "\x1b[95m\x1b[38;2;255;0;255mλ>\x1b[0m " "flora" with
     | None -> env
     | Some line ->
         Error.handle
