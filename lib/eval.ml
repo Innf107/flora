@@ -97,7 +97,7 @@ let rec continue : type a r. (a, r) cont -> a -> r =
             | arg :: rest ->
                 eval_cont env arg
                   (EvalAppArgs
-                     ((closure_env, closure_names, body), env, [], rest, cont))
+                     ((Lazy.force_val closure_env, closure_names, body), env, [], rest, cont))
           end
       | value -> raise (EvalError (loc, TryingToCallNonFunction value))
     end
@@ -167,7 +167,7 @@ and eval_cont : type r. env -> expr -> (value, r) cont -> r =
     end
   | App (loc, function_expr, argument_exprs) ->
       eval_cont env function_expr (EvalAppFun (loc, env, argument_exprs, cont))
-  | Lambda (loc, names, body) -> continue cont (Closure (env, names, body))
+  | Lambda (loc, names, body) -> continue cont (Closure (lazy env, names, body))
   | Literal (loc, literal) -> continue cont (eval_literal literal)
   | Binop (loc, left, op, right) -> eval_binop env loc left op right cont
   | If (loc, condition, then_branch, else_branch) ->
@@ -184,6 +184,9 @@ and eval_statements :
   | RunExpr expr :: rest -> eval_cont env expr (EvalSequence (env, rest, cont))
   | Let (loc, name, body) :: rest ->
       eval_cont env body (BindValue (env, name, rest, cont))
+  | LetFun (loc, name, params, body) :: rest ->
+      let rec new_env = lazy (bind_variable name (Closure (new_env, params, body)) env) in
+      eval_statements (Lazy.force new_env) rest cont
 
 and eval_binop :
     type r. env -> loc -> expr -> binop -> expr -> (value, r) cont -> r =

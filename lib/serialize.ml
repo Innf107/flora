@@ -267,14 +267,20 @@ let rec write_expr state = function
       write_list write_statement state statements
 
 and write_statement state = function
-  | Let (loc, name, expr) ->
+  | RunExpr expr ->
       write_byte state 0;
+      write_expr state expr
+  | Let (loc, name, expr) ->
+      write_byte state 1;
       write_loc state loc;
       write_string state name;
       write_expr state expr
-  | RunExpr expr ->
-      write_byte state 1;
-      write_expr state expr
+  | LetFun (loc, name, params, body) ->
+      write_byte state 2;
+      write_loc state loc;
+      write_string state name;
+      write_list write_string state params;
+      write_expr state body
 
 let rec read_expr state =
   match read_byte state with
@@ -341,7 +347,7 @@ let rec write_value state = function
       write_list write_value state values
   | Closure (env, parameters, body) ->
       write_byte state 5;
-      write_env state env;
+      write_env state (Lazy.force_val env);
       write_list write_string state parameters;
       write_expr state body
 
@@ -482,7 +488,7 @@ let deserialize_env in_channel =
     | List values -> Syntax.List (List.map fill_value values)
     | Closure (index, params, expr) ->
         let env = fill_env index in
-        Closure (env, params, expr)
+        Closure (lazy env, params, expr)
   in
 
   let env = fill_env main_index in

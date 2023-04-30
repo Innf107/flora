@@ -37,6 +37,7 @@ type binop =
 
 type statement =
   | Let of loc * name * expr
+  | LetFun of loc * name * name list * expr
   | RunExpr of expr
 
 and expr =
@@ -54,7 +55,8 @@ and value =
   | String of string
   | Bool of bool
   | List of value list
-  | Closure of env * name list * expr
+  (* The environment needs to be lazy to allow recursive definitions *)
+  | Closure of env Lazy.t * name list * expr
 
 and env = {
   contents : env_contents;
@@ -118,6 +120,7 @@ let rec pretty_expr = function
 
 and pretty_statement = function
   | Let (_, name, body) -> "let " ^ name ^ " = " ^ pretty_expr body
+  | LetFun(_, name, params, body) -> "let " ^ name ^ "(" ^ String.concat ", " params ^ ") = " ^ pretty_expr body
   | RunExpr expr -> pretty_expr expr
 
 let rec pretty_value = function

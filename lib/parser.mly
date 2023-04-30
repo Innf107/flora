@@ -120,6 +120,7 @@ expr_leaf:
 
 statement:
 | "let" IDENT "=" expr { Let(loc $loc, $2, $4) }
+| "let" IDENT "(" sep_trailing(",", IDENT) ")" "=" expr { LetFun(loc $loc, $2, $4, $7) }
 | expr { RunExpr($1) }
 
 literal:
