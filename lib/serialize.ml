@@ -265,6 +265,21 @@ let rec write_expr state = function
   | Sequence statements ->
       write_byte state 6;
       write_list write_statement state statements
+  | Perform (loc, effect_name, arguments) ->
+      write_byte state 7;
+      write_loc state loc;
+      write_string state effect_name;
+      write_list write_expr state arguments
+  | Handle (loc, scrutinee, handlers) ->
+      write_byte state 8;
+      write_loc state loc;
+      write_list
+        (fun state (name, params, cont_name, expr) ->
+          write_string state name;
+          write_list write_string state params;
+          write_string state cont_name;
+          write_expr state expr)
+        state handlers
 
 and write_statement state = function
   | RunExpr expr ->
@@ -317,6 +332,25 @@ let rec read_expr state =
   | 6 ->
       let statements = read_list read_statement state in
       Sequence statements
+  | 7 ->
+      let loc = read_loc state in
+      let effect_name = read_string state in
+      let arguments = read_list read_expr state in
+      Perform (loc, effect_name, arguments)
+  | 8 ->
+      let loc = read_loc state in
+      let scrutinee = read_expr state in
+      let handlers =
+        read_list
+          (fun state ->
+            let name = read_string state in
+            let params = read_list read_string state in
+            let cont_name = read_string state in
+            let expr = read_expr state in
+            (name, params, cont_name, expr))
+          state
+      in
+      Handle (loc, scrutinee, handlers)
   | tag -> raise (DeserializationError (InvalidTag { ty = "expr"; tag }))
 
 and read_statement state =
@@ -329,6 +363,12 @@ and read_statement state =
   | 1 ->
       let expr = read_expr state in
       RunExpr expr
+  | 2 ->
+      let loc = read_loc state in
+      let name = read_string state in
+      let params = read_list read_string state in
+      let body = read_expr state in
+      LetFun (loc, name, params, body)
   | tag -> raise (DeserializationError (InvalidTag { ty = "statement"; tag }))
 
 let rec write_value state = function

@@ -48,6 +48,8 @@ and expr =
   | Binop of loc * expr * binop * expr
   | If of loc * expr * expr * expr
   | Sequence of statement list
+  | Perform of loc * name * expr list
+  | Handle of loc * expr * (name * name list * name * expr) list
 
 and value =
   | Nil
@@ -96,39 +98,11 @@ let pretty_binop : binop -> string = function
   | `Or -> "||"
   | `And -> "&&"
 
-let rec pretty_expr = function
-  | Var (_, name) -> name
-  | App (_, fun_expr, args) ->
-      pretty_expr fun_expr ^ "("
-      ^ String.concat ", " (List.map pretty_expr args)
-      ^ ")"
-  | Lambda (_, parameters, body) ->
-      "(\\" ^ String.concat ", " parameters ^ " -> " ^ pretty_expr body ^ ")"
-  | Literal (_, literal) -> pretty_literal literal
-  | Binop (_, left, op, right) ->
-      "(" ^ pretty_expr left ^ " " ^ pretty_binop op ^ " " ^ pretty_expr right
-      ^ ")"
-  | If (_, condition, then_branch, else_branch) ->
-      "(if " ^ pretty_expr condition ^ " then {\n" ^ "    "
-      ^ pretty_expr then_branch ^ "\n" ^ "} else {\n" ^ "    "
-      ^ pretty_expr else_branch ^ "\n" ^ "})"
-  | Sequence statements ->
-      "{\n"
-      ^ String.concat ";\n"
-          (List.map (fun x -> "  " ^ pretty_statement x) statements)
-      ^ "\n}"
-
-and pretty_statement = function
-  | Let (_, name, body) -> "let " ^ name ^ " = " ^ pretty_expr body
-  | LetFun(_, name, params, body) -> "let " ^ name ^ "(" ^ String.concat ", " params ^ ") = " ^ pretty_expr body
-  | RunExpr expr -> pretty_expr expr
-
 let rec pretty_value = function
   | Number f -> string_of_float f
   | String str -> "\"" ^ str ^ "\""
   | Closure (_, params, expr) ->
-      "(\\[closure](" ^ String.concat ", " params ^ ") -> " ^ pretty_expr expr
-      ^ ")"
+      "(\\[closure](" ^ String.concat ", " params ^ ") -> ...)"
   | Bool bool -> string_of_bool bool
   | List list -> "[" ^ String.concat ", " (List.map pretty_value list) ^ "]"
   | Nil -> "nil"

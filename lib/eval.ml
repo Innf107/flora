@@ -13,6 +13,11 @@ type eval_error =
       expected : string list;
       actual : value option list;
     }
+  | IncorrectNumberOfHandlerArgs of {
+      effect : name;
+      expected : int;
+      actual : int;
+    }
 
 exception EvalError of loc * eval_error
 
@@ -64,7 +69,9 @@ type ('a, 'r) cont =
   | EvalSequence :
       env * statement list * (env * value, 'r) cont
       -> ('a, 'r) cont
-  | BindValue : env * name * statement list * (env * value, 'r) cont -> (value, 'r) cont
+  | BindValue :
+      env * name * statement list * (env * value, 'r) cont
+      -> (value, 'r) cont
   | StrictBinOp1 :
       loc * env * strict_binop * expr * (value, 'r) cont
       -> (value, 'r) cont
@@ -74,11 +81,18 @@ type ('a, 'r) cont =
   | LazyBinOp :
       loc * env * lazy_binop * expr * (value, 'r) cont
       -> (value, 'r) cont
+  | PerformArgs :
+      loc * env * name * expr list * value list * (value, 'r) cont
+      -> (value, 'r) cont
 
-let rec continue : type a r. (a, r) cont -> a -> r =
+type 'r eval_result =
+  | Completed of 'r
+  | Suspended of name * value list * (value, 'r) cont
+
+let rec continue : type a r. (a, r) cont -> a -> r eval_result =
  fun cont argument ->
   match cont with
-  | Done -> argument
+  | Done -> Completed argument
   | EvalAppFun (loc, env, argument_exprs, cont) -> begin
       match argument with
       | Closure (closure_env, closure_names, body) ->
@@ -97,7 +111,11 @@ let rec continue : type a r. (a, r) cont -> a -> r =
             | arg :: rest ->
                 eval_cont env arg
                   (EvalAppArgs
-                     ((Lazy.force_val closure_env, closure_names, body), env, [], rest, cont))
+                     ( (Lazy.force_val closure_env, closure_names, body),
+                       env,
+                       [],
+                       rest,
+                       cont ))
           end
       | value -> raise (EvalError (loc, TryingToCallNonFunction value))
     end
@@ -130,7 +148,7 @@ let rec continue : type a r. (a, r) cont -> a -> r =
     end
   | WithEnv (env, cont) -> continue cont (env, argument)
   | IgnoreEnv cont ->
-      let _env, value = argument in
+      let env, value = argument in
       continue cont value
   | EvalSequence (env, statements, cont) -> eval_statements env statements cont
   | BindValue (env, name, statements, cont) ->
@@ -156,8 +174,16 @@ let rec continue : type a r. (a, r) cont -> a -> r =
           | Bool false -> continue cont (Bool false)
           | value -> invalid_operator_args loc "(&&)" [ "Bool"; "_" ] [ value ]
         end)
+  | PerformArgs (loc, env, effect, arguments, argument_values, cont) -> begin
+      match arguments with
+      | [] -> Suspended (effect, argument :: argument_values, cont)
+      | expr :: rest ->
+          eval_cont env expr
+            (PerformArgs
+               (loc, env, effect, rest, argument :: argument_values, cont))
+    end
 
-and eval_cont : type r. env -> expr -> (value, r) cont -> r =
+and eval_cont : type r. env -> expr -> (value, r) cont -> r eval_result =
  fun env expr cont ->
   match expr with
   | Var (loc, name) -> begin
@@ -174,9 +200,57 @@ and eval_cont : type r. env -> expr -> (value, r) cont -> r =
       eval_cont env condition
         (IfCont (loc, env, then_branch, else_branch, cont))
   | Sequence statements -> eval_statements env statements (IgnoreEnv cont)
+  | Perform (loc, effect, arguments) -> begin
+      match arguments with
+      | [] -> Suspended (effect, [], cont)
+      | expr :: rest ->
+          eval_cont env expr (PerformArgs (loc, env, effect, rest, [], cont))
+    end
+  | Handle (loc, scrutinee, handlers) -> begin
+      match eval_cont env scrutinee Done with
+      | Completed value -> continue cont value
+      | Suspended (effect, arguments, suspended_cont) -> begin
+          match
+            List.find_opt
+              (fun (handled_effect, _, _, _) ->
+                (* I don't like that we need to use string equality here.
+                   We should probably intern strings. *)
+                String.equal effect handled_effect)
+              handlers
+          with
+          | Some (_, parameter_names, cont_name, body) ->
+              if List.compare_lengths parameter_names arguments <> 0 then begin
+                raise
+                  (EvalError
+                     ( loc,
+                       IncorrectNumberOfHandlerArgs
+                         {
+                           effect;
+                           expected = List.length parameter_names;
+                           actual = List.length arguments;
+                         } ))
+              end
+              else begin
+                let argument_seq =
+                  Seq.zip (List.to_seq parameter_names) (List.to_seq arguments)
+                in
+
+                let updated_env =
+                  bind_variables
+                    (* TODO: Build a continuation here. Fuck the lack of mutually recursive modules in OCaml
+                       Urrrgggghhh *)
+                    (Seq.cons (cont_name, Util.todo __LOC__) argument_seq)
+                    env
+                in
+
+                eval_cont updated_env body cont
+              end
+          | None -> Util.todo __LOC__
+        end
+    end
 
 and eval_statements :
-    type r. env -> statement list -> (env * value, r) cont -> r =
+    type r. env -> statement list -> (env * value, r) cont -> r eval_result =
  fun env statements cont ->
   match statements with
   | [] -> continue cont (env, Nil)
@@ -185,11 +259,14 @@ and eval_statements :
   | Let (loc, name, body) :: rest ->
       eval_cont env body (BindValue (env, name, rest, cont))
   | LetFun (loc, name, params, body) :: rest ->
-      let rec new_env = lazy (bind_variable name (Closure (new_env, params, body)) env) in
+      let rec new_env =
+        lazy (bind_variable name (Closure (new_env, params, body)) env)
+      in
       eval_statements (Lazy.force new_env) rest cont
 
 and eval_binop :
-    type r. env -> loc -> expr -> binop -> expr -> (value, r) cont -> r =
+    type r.
+    env -> loc -> expr -> binop -> expr -> (value, r) cont -> r eval_result =
  fun env loc left op right cont ->
   match op with
   | #strict_binop as op ->

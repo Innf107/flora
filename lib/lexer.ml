@@ -69,6 +69,8 @@ let ident_of_string = function
   | "nil" -> Parser.NIL
   | "true" -> Parser.TRUE
   | "false" -> Parser.FALSE
+  | "perform" -> Parser.PERFORM
+  | "handle" -> Parser.HANDLE
   | ident -> Parser.IDENT ident
 
 let is_whitespace char = String.contains " \t\n" char

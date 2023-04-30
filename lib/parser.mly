@@ -25,6 +25,8 @@ let loc (start_pos, end_pos) =
 %token NIL "nil"
 %token TRUE "true"
 %token FALSE "false"
+%token PERFORM "perform"
+%token HANDLE "handle"
 %token EQUALS "="
 %token SEMI ";"
 %token COMMA ","
@@ -115,8 +117,13 @@ expr_leaf:
 | "λ" IDENT "->" expr { Lambda(loc $loc, [$2], $4) }
 | "λ" "(" sep_trailing(",", IDENT) ")" "->" expr { Lambda(loc $loc, $3, $6) }
 | "if" expr  "then" expr "else" expr { If(loc $loc, $2, $4, $6) }
+| "perform" IDENT "(" sep_trailing(",", expr) ")" { Perform(loc $loc, $2, $4) }
+| "handle" expr "{" sep_trailing(";", handle_branch) "}" { Handle(loc $loc, $2, $4) }
 | "(" expr ")" { $2 }
 | "{" sep_trailing(";", statement) "}" { Sequence($2) }
+
+handle_branch:
+| IDENT "(" sep_trailing(",", IDENT) ")" IDENT "->" expr { ($1, $3, $5, $7) }
 
 statement:
 | "let" IDENT "=" expr { Let(loc $loc, $2, $4) }

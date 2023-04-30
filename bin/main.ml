@@ -57,7 +57,13 @@ let run_repl env options =
             go env)
           begin
             fun () ->
-              let env, result = Driver.eval_string ~filename:None env line in
+              let env, result = 
+                match Driver.eval_string ~filename:None env line with
+                | Completed (env, result) -> env, result
+                | Suspended (effect, args, cont) -> 
+                  
+                  Util.todo __LOC__
+                in
 
               (* TODO: Print this differently if the output is not a tty *)
               print_endline ("- " ^ Syntax.pretty_value result);
@@ -111,7 +117,9 @@ let () =
               In_channel.with_open_text file In_channel.input_all
             in
             let env, value =
-              Driver.eval_string ~filename:(Some file) initial_env contents
+              match Driver.eval_string ~filename:(Some file) initial_env contents with
+              | Completed (env, value) -> env, value
+              | Suspended _ -> Util.todo __LOC__
             in
             begin
               match options.write_env_to with
