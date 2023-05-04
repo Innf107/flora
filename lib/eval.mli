@@ -17,6 +17,7 @@ type eval_error =
       expected : int;
       actual : int;
     }
+  | IncorrectNumberOfArgsToContinuation of int
 
 exception EvalError of loc * eval_error
 
@@ -47,7 +48,9 @@ type ('a, 'r) cont =
   | PerformArgs :
       loc * env * name * expr list * value list * (value, 'r) cont
       -> (value, 'r) cont
-
+  | Compose :
+    ('a, 'b) cont * ('b, 'c) cont -> ('a, 'c) cont
+  
 type 'r eval_result =
   | Completed of 'r
   | Suspended of name * value list * (value, 'r) cont

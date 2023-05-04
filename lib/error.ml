@@ -33,4 +33,8 @@ let pretty = function
       "Incorrect number of arguments to handled effect '" ^ effect ^ ".\n"
       ^ "    Expected: " ^ string_of_int expected ^ "\n"
       ^ "      Actual: " ^ string_of_int actual
+    | IncorrectNumberOfArgsToContinuation actual -> 
+      "Incorrect number of arguments to handled continuation.\n"
+      ^ "    Expected exactly one argument\n"
+      ^ "      Actual: " ^ string_of_int actual  
   end

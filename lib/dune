@@ -1,6 +1,8 @@
 (library
  (name flora)
- (libraries menhirLib))
+ (libraries menhirLib serialize_ppx)
+ (preprocess
+  (pps serialize_ppx)))
 
 (menhir
  (modules parser)

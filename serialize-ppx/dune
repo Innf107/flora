@@ -1,0 +1,5 @@
+(library
+ (name serialize_ppx)
+ (kind ppx_rewriter)
+ (libraries ppxlib typerep)
+ (preprocess (pps ppxlib.metaquot)))

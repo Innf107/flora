@@ -18,6 +18,7 @@ type eval_error =
       expected : int;
       actual : int;
     }
+  | IncorrectNumberOfArgsToContinuation of int
 
 exception EvalError of loc * eval_error
 
@@ -84,6 +85,7 @@ type ('a, 'r) cont =
   | PerformArgs :
       loc * env * name * expr list * value list * (value, 'r) cont
       -> (value, 'r) cont
+  | Compose : ('a, 'b) cont * ('b, 'c) cont -> ('a, 'c) cont
 
 type 'r eval_result =
   | Completed of 'r
@@ -117,10 +119,18 @@ let rec continue : type a r. (a, r) cont -> a -> r eval_result =
                        rest,
                        cont ))
           end
-      | Continuation cont ->
-        (* TODO: Is it safe to assume return type 'r' here? *)
-        let cont : (value, r) cont = Obj.magic cont in
-        continue cont argument
+      | Continuation called_continuation -> begin
+          match argument_exprs with
+          | [ arg_expr ] ->
+              let called_continuation : (value, value) cont =
+                Obj.magic called_continuation
+              in
+              eval_cont env arg_expr (Compose (called_continuation, cont))
+          | args ->
+              raise
+                (EvalError
+                   (loc, IncorrectNumberOfArgsToContinuation (List.length args)))
+        end
       | value -> raise (EvalError (loc, TryingToCallNonFunction value))
     end
   | EvalAppArgs
@@ -186,6 +196,12 @@ let rec continue : type a r. (a, r) cont -> a -> r eval_result =
             (PerformArgs
                (loc, env, effect, rest, argument :: argument_values, cont))
     end
+  | Compose (ab_cont, bc_cont) -> begin
+      match continue ab_cont argument with
+      | Completed result -> continue bc_cont result
+      | Suspended (effect, arguments, partial_cont) ->
+          Suspended (effect, arguments, Compose (partial_cont, bc_cont))
+    end
 
 and eval_cont : type r. env -> expr -> (value, r) cont -> r eval_result =
  fun env expr cont ->
@@ -243,7 +259,9 @@ and eval_cont : type r. env -> expr -> (value, r) cont -> r eval_result =
                   bind_variables
                     (* TODO: Build a continuation here. Fuck the lack of mutually recursive modules in OCaml
                        Urrrgggghhh *)
-                    (Seq.cons (cont_name, Continuation (Obj.magic cont)) argument_seq)
+                    (Seq.cons
+                       (cont_name, Continuation (Obj.magic suspended_cont))
+                       argument_seq)
                     env
                 in
 
