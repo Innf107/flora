@@ -31,6 +31,8 @@ type read_value =
   | String of string
   | Bool of bool
   | List of read_value list
+  (* TODO: Continuations should be shared similar to environments *)
+  | Continuation of (value, value) Eval.cont
 
 type read_env_contents = { variables : read_value NameMap.t }
 
@@ -390,8 +392,12 @@ let rec write_value state = function
       write_env state (Lazy.force_val env);
       write_list write_string state parameters;
       write_expr state body
+  | Continuation cont ->
+      write_byte state 6;
+      let cont : (value, value) Eval.cont = Obj.magic cont in
+      write_cont state cont
 
-let rec read_value state : read_value =
+and read_value state : read_value =
   let tag = read_byte state in
   match tag with
   | 0 -> Nil
@@ -412,7 +418,15 @@ let rec read_value state : read_value =
       let params = read_list read_string state in
       let body = read_expr state in
       Closure (env, params, body)
+  | 6 ->
+      let cont = read_cont state in
+      Continuation cont
   | tag -> raise (DeserializationError (InvalidTag { ty = "value"; tag }))
+
+and write_cont _ = Util.todo __LOC__
+
+and read_cont _ = Util.todo __LOC__
+      
 
 let write_environment_delta state previous { Syntax.variables } =
   write_optional write_int state previous;
@@ -529,6 +543,7 @@ let deserialize_env in_channel =
     | Closure (index, params, expr) ->
         let env = fill_env index in
         Closure (lazy env, params, expr)
+    | Continuation cont -> Syntax.Continuation (Obj.magic cont)
   in
 
   let env = fill_env main_index in

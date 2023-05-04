@@ -51,7 +51,20 @@ and expr =
   | Perform of loc * name * expr list
   | Handle of loc * expr * (name * name list * name * expr) list
 
-and value =
+(* See Note [Continuation Representation] 
+
+  The type of continuations should be kept abstract to consumers of this module, 
+  but we don't have an mli file because of the type definitions.
+  That's why we use this hack to keep continuations abstract to the outside *)
+include (
+  struct
+    type continuation = Obj.t
+  end :
+    sig
+      type continuation
+    end)
+
+type value =
   | Nil
   | Number of float
   | String of string
@@ -59,6 +72,8 @@ and value =
   | List of value list
   (* The environment needs to be lazy to allow recursive definitions *)
   | Closure of env Lazy.t * name list * expr
+  (* See Note [Continuation Representation]*)
+  | Continuation of continuation
 
 and env = {
   contents : env_contents;
@@ -106,6 +121,7 @@ let rec pretty_value = function
   | Bool bool -> string_of_bool bool
   | List list -> "[" ^ String.concat ", " (List.map pretty_value list) ^ "]"
   | Nil -> "nil"
+  | Continuation _ -> "<continuation ...>"
 
 (* Note [Environment Provenance]
 
@@ -124,4 +140,17 @@ let rec pretty_value = function
    with explicit references to the previous environment. The deserialization process then takes that
    information and collects the environments into flat maps that the evaluator can use
    with all the sharing it needs.
+*)
+
+(* Note [Continuation Representation] 
+
+   Continuations should be represented by the type (value, value) Eval.cont.
+   Unfortunately, Eval depends on this module, so we cannot actually include that type here
+   thanks to OCaml's lack of mutually recursive modules without explicit signatures.
+   Fortunately for us, the representation of continuations should be kept abstract anyway,
+   so we can cheat.
+   We cast continuations to Obj.t (equivalent to e.g. void* in C or Any in Haskell) to avoid any mutual recursion.
+   Eval then casts those back to (value, value) cont values to process them.
+   This gives up a bit of type safety, so we need to make absolutely sure that Continuation values
+   never store anything other than actual continuations or we will end up with segmentation faults. 
 *)

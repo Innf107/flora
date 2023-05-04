@@ -4,6 +4,6 @@ type t = {
   start_column : int;
   end_line : int;
   end_column : int;
-} [@@deriving yojson]
+}
 
 val pretty : t -> string

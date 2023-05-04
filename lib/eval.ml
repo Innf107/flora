@@ -117,6 +117,10 @@ let rec continue : type a r. (a, r) cont -> a -> r eval_result =
                        rest,
                        cont ))
           end
+      | Continuation cont ->
+        (* TODO: Is it safe to assume return type 'r' here? *)
+        let cont : (value, r) cont = Obj.magic cont in
+        continue cont argument
       | value -> raise (EvalError (loc, TryingToCallNonFunction value))
     end
   | EvalAppArgs
@@ -239,7 +243,7 @@ and eval_cont : type r. env -> expr -> (value, r) cont -> r eval_result =
                   bind_variables
                     (* TODO: Build a continuation here. Fuck the lack of mutually recursive modules in OCaml
                        Urrrgggghhh *)
-                    (Seq.cons (cont_name, Util.todo __LOC__) argument_seq)
+                    (Seq.cons (cont_name, Continuation (Obj.magic cont)) argument_seq)
                     env
                 in
 
