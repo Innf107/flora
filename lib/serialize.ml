@@ -9,6 +9,10 @@ type deserialization_error =
       ty : string;
       tag : int;
     }
+  | ContTypeError of {
+      expected : string;
+      actual : string;
+    }
 
 exception DeserializationError of deserialization_error
 
@@ -21,10 +25,11 @@ type write_state = {
 }
 
 type read_state = { in_channel : in_channel }
+type read_env = int
 
 type read_value =
   (* We might not have read the entire environment yet so this needs to be 'int' *)
-  | Closure of int * name list * expr
+  | Closure of read_env * name list * expr
   (* The rest is just boilerplate copied from the definition of Syntax.value *)
   | Nil
   | Number of float
@@ -32,7 +37,30 @@ type read_value =
   | Bool of bool
   | List of read_value list
   (* TODO: Continuations should be shared similar to environments *)
-  | Continuation of (value, value) Eval.cont
+  | Continuation of read_cont
+
+and read_cont =
+  | Done : read_cont
+  | EvalAppFun : loc * read_env * expr list * read_cont -> read_cont
+  | EvalAppArgs :
+      (read_env * name list * expr)
+      * read_env
+      * read_value list
+      * expr list
+      * read_cont
+      -> read_cont
+  | IfCont : loc * read_env * expr * expr * read_cont -> read_cont
+  | WithEnv : read_env * read_cont -> read_cont
+  | IgnoreEnv : read_cont -> read_cont
+  | EvalSequence : read_env * statement list * read_cont -> read_cont
+  | BindValue : read_env * name * statement list * read_cont -> read_cont
+  | StrictBinOp1 : loc * read_env * strict_binop * expr * read_cont -> read_cont
+  | StrictBinOp2 : loc * read_value * strict_binop * read_cont -> read_cont
+  | LazyBinOp : loc * read_env * lazy_binop * expr * read_cont -> read_cont
+  | PerformArgs :
+      loc * read_env * name * expr list * read_value list * read_cont
+      -> read_cont
+  | Compose : read_cont * read_cont -> read_cont
 
 type read_env_contents = { variables : read_value NameMap.t }
 
@@ -201,7 +229,7 @@ let read_literal state =
   | tag -> raise (DeserializationError (InvalidTag { ty = "literal"; tag }))
 
 let write_binop state = function
-  | (`Add : binop) -> write_byte state 0
+  | (`Add : [< binop ]) -> write_byte state 0
   | `Subtract -> write_byte state 1
   | `Multiply -> write_byte state 2
   | `Divide -> write_byte state 3
@@ -423,10 +451,188 @@ and read_value state : read_value =
       Continuation cont
   | tag -> raise (DeserializationError (InvalidTag { ty = "value"; tag }))
 
-and write_cont _ = Util.todo __LOC__
+and write_cont : type a b. write_state -> (a, b) Eval.cont -> unit =
+ fun state -> function
+  | Done -> write_byte state 0
+  | EvalAppFun (loc, env, arguments, cont) ->
+      write_byte state 1;
+      write_loc state loc;
+      write_env state env;
+      write_list write_expr state arguments;
+      write_cont state cont
+  | EvalAppArgs
+      ( (closure_env, closure_params, closure_body),
+        env,
+        arguments,
+        argument_exprs,
+        cont ) ->
+      write_byte state 2;
+      write_env state closure_env;
+      write_list write_string state closure_params;
+      write_expr state closure_body;
+      write_env state env;
+      write_list write_value state arguments;
+      write_list write_expr state argument_exprs;
+      write_cont state cont
+  | IfCont (loc, env, then_branch, else_branch, cont) ->
+      write_byte state 3;
+      write_env state env;
+      write_expr state then_branch;
+      write_expr state else_branch;
+      write_cont state cont
+  | WithEnv (env, cont) ->
+      write_byte state 4;
+      write_env state env;
+      write_cont state cont
+  | IgnoreEnv cont ->
+      write_byte state 5;
+      write_cont state cont
+  | EvalSequence (env, statements, cont) ->
+      write_byte state 6;
+      write_env state env;
+      write_list write_statement state statements;
+      write_cont state cont
+  | BindValue (env, name, rest, cont) ->
+      write_byte state 7;
+      write_env state env;
+      write_string state name;
+      write_list write_statement state rest;
+      write_cont state cont
+  | StrictBinOp1 (loc, env, strict_binop, expr, cont) ->
+      write_byte state 8;
+      write_loc state loc;
+      write_env state env;
+      write_binop state strict_binop;
+      write_expr state expr;
+      write_cont state cont
+  | StrictBinOp2 (loc, value, strict_binop, cont) ->
+      write_byte state 9;
+      write_loc state loc;
+      write_value state value;
+      write_binop state strict_binop;
+      write_cont state cont
+  | LazyBinOp (loc, env, lazy_binop, expr, cont) ->
+      write_byte state 10;
+      write_loc state loc;
+      write_env state env;
+      write_binop state lazy_binop;
+      write_expr state expr;
+      write_cont state cont
+  | PerformArgs (loc, env, name, arg_exprs, arg_values, cont) ->
+      write_byte state 11;
+      write_loc state loc;
+      write_env state env;
+      write_string state name;
+      write_list write_expr state arg_exprs;
+      write_list write_value state arg_values;
+      write_cont state cont
+  | Compose (cont1, cont2) ->
+      write_byte state 12;
+      write_cont state cont1;
+      write_cont state cont2
 
-and read_cont _ = Util.todo __LOC__
-      
+and read_cont : read_state -> read_cont =
+ fun state ->
+  match read_byte state with
+  | 0 -> Done
+  | 1 ->
+      let loc = read_loc state in
+      let env = read_env state in
+      let arguments = read_list read_expr state in
+      let cont = read_cont state in
+      EvalAppFun (loc, env, arguments, cont)
+  | 2 ->
+      let closure_env = read_env state in
+      let closure_params = read_list read_string state in
+      let closure_body = read_expr state in
+      let env = read_env state in
+      let arguments = read_list read_value state in
+      let argument_exprs = read_list read_expr state in
+      let cont = read_cont state in
+      EvalAppArgs
+        ( (closure_env, closure_params, closure_body),
+          env,
+          arguments,
+          argument_exprs,
+          cont )
+  | 3 ->
+      let loc = read_loc state in
+      let env = read_env state in
+      let then_branch = read_expr state in
+      let else_branch = read_expr state in
+      let cont = read_cont state in
+      IfCont (loc, env, then_branch, else_branch, cont)
+  | 4 ->
+      let env = read_env state in
+      let cont = read_cont state in
+      WithEnv (env, cont)
+  | 5 ->
+      let cont = read_cont state in
+      IgnoreEnv cont
+  | 6 ->
+      let env = read_env state in
+      let statements = read_list read_statement state in
+      let cont = read_cont state in
+      EvalSequence (env, statements, cont)
+  | 7 ->
+      let env = read_env state in
+      let name = read_string state in
+      let rest = read_list read_statement state in
+      let cont = read_cont state in
+      BindValue (env, name, rest, cont)
+  | 8 ->
+      let loc = read_loc state in
+      let env = read_env state in
+      let strict_binop =
+        match read_binop state with
+        | #strict_binop as op -> op
+        | _ ->
+            raise
+              (DeserializationError
+                 (InvalidTag { ty = "strict_binop"; tag = -1 }))
+      in
+      let expr = read_expr state in
+      let cont = read_cont state in
+      StrictBinOp1 (loc, env, strict_binop, expr, cont)
+  | 9 ->
+      let loc = read_loc state in
+      let value = read_value state in
+      let strict_binop =
+        match read_binop state with
+        | #strict_binop as op -> op
+        | _ ->
+            raise
+              (DeserializationError
+                 (InvalidTag { ty = "strict_binop"; tag = -1 }))
+      in
+      let cont = read_cont state in
+      StrictBinOp2 (loc, value, strict_binop, cont)
+  | 10 ->
+      let loc = read_loc state in
+      let env = read_env state in
+      let lazy_binop =
+        match read_binop state with
+        | #lazy_binop as op -> op
+        | _ ->
+            raise
+              (DeserializationError (InvalidTag { ty = "lazy_binop"; tag = -1 }))
+      in
+      let expr = read_expr state in
+      let cont = read_cont state in
+      LazyBinOp (loc, env, lazy_binop, expr, cont)
+  | 11 ->
+      let loc = read_loc state in
+      let env = read_env state in
+      let name = read_string state in
+      let arg_exprs = read_list read_expr state in
+      let arg_values = read_list read_value state in
+      let cont = read_cont state in
+      PerformArgs (loc, env, name, arg_exprs, arg_values, cont)
+  | 12 ->
+      let cont1 = read_cont state in
+      let cont2 = read_cont state in
+      Compose (cont1, cont2)
+  | tag -> raise (DeserializationError (InvalidTag { ty = "cont"; tag }))
 
 let write_environment_delta state previous { Syntax.variables } =
   write_optional write_int state previous;
@@ -459,10 +665,13 @@ let read_environment_deltas state =
         delta :: go ()
   in
   let deltas = go () in
-  let main_index = read_int state in
-  (deltas, main_index)
+  deltas
 
-let serialize_env out_channel env =
+type serialization_target =
+  | SerializeEnv of env
+  | SerializeCont : ('a, 'r) Eval.cont -> serialization_target
+
+let serialize out_channel target =
   let state =
     {
       environments = [];
@@ -471,7 +680,11 @@ let serialize_env out_channel env =
       out_channel;
     }
   in
-  let main_index = register_env_index state env in
+
+  let main_index = match target with
+  | SerializeEnv env -> register_env_index state env 
+  | _ -> -1
+  in
 
   let rec write_environments () =
     match Queue.take_opt state.environments_to_be_written with
@@ -483,12 +696,24 @@ let serialize_env out_channel env =
   in
   write_environments ();
   write_bool state false;
-  write_int state main_index
+  match target with
+  | SerializeEnv _ -> write_int state main_index
+  | SerializeCont cont ->
+    write_cont state cont
 
-let deserialize_env in_channel =
+type 'r cont_result =
+  | Value : value cont_result
+  | EnvValue : (env * value) cont_result
+
+type 'a deserialization_target =
+  | DeserializeEnv : env deserialization_target
+  | DeserializeCont : 'r cont_result -> (value, 'r) Eval.cont deserialization_target
+
+let deserialize : type a. a deserialization_target -> in_channel -> a =
+ fun target in_channel ->
   let state = { in_channel } in
 
-  let env_deltas, main_index = read_environment_deltas state in
+  let env_deltas = read_environment_deltas state in
 
   let env_deltas = Array.of_list env_deltas in
 
@@ -546,11 +771,127 @@ let deserialize_env in_channel =
     | Continuation cont -> Syntax.Continuation (Obj.magic cont)
   in
 
-  let env = fill_env main_index in
-  trace_deserialize
-    (lazy
-      ("environment variables: ["
-      ^ String.concat ", "
-          (List.map fst (NameMap.bindings env.contents.variables))
-      ^ "]"));
-  env
+  match target with
+  | DeserializeEnv ->
+      let main_index = read_int state in
+      let env = fill_env main_index in
+      trace_deserialize
+        (lazy
+          ("environment variables: ["
+          ^ String.concat ", "
+              (List.map fst (NameMap.bindings env.contents.variables))
+          ^ "]"));
+      env
+  | DeserializeCont result_type ->
+      let with_r : type r. r cont_result -> (value, r) Eval.cont =
+       fun result ->
+        let rec fill_value_cont : read_cont -> (value, r) Eval.cont = function
+          | Done -> begin
+              match result with
+              | Value -> Done
+              | EnvValue ->
+                  raise
+                    (DeserializationError
+                       (ContTypeError
+                          {
+                            expected = "(env, value) cont";
+                            actual = "value cont";
+                          }))
+            end
+          | EvalAppFun (loc, env, exprs, cont) ->
+              let env = fill_env env in
+              let cont = fill_value_cont cont in
+              EvalAppFun (loc, env, exprs, cont)
+          | EvalAppArgs
+              ((closure_env, params, body), env, arguments, argument_exprs, cont)
+            ->
+              let closure_env = fill_env closure_env in
+              let env = fill_env env in
+              let arguments = List.map fill_value arguments in
+              let cont = fill_value_cont cont in
+              EvalAppArgs
+                ( (closure_env, params, body),
+                  env,
+                  arguments,
+                  argument_exprs,
+                  cont )
+          | IfCont (loc, env, then_branch, else_branch, cont) ->
+              let env = fill_env env in
+              let cont = fill_value_cont cont in
+              IfCont (loc, env, then_branch, else_branch, cont)
+          | WithEnv (env, cont) ->
+              let env = fill_env env in
+              let cont = fill_value_env_cont cont in
+              WithEnv (env, cont)
+          | IgnoreEnv _ ->
+              raise
+                (DeserializationError
+                   (ContTypeError
+                      { expected = "value cont"; actual = "(value, env) cont" }))
+          | EvalSequence (env, statements, cont) ->
+              let env = fill_env env in
+              let cont = fill_value_env_cont cont in
+              EvalSequence (env, statements, cont)
+          | BindValue (env, name, statements, cont) ->
+              let env = fill_env env in
+              let cont = fill_value_env_cont cont in
+              BindValue (env, name, statements, cont)
+          | StrictBinOp1 (loc, env, strict_binop, expr, cont) ->
+              let env = fill_env env in
+              let cont = fill_value_cont cont in
+              StrictBinOp1 (loc, env, strict_binop, expr, cont)
+          | StrictBinOp2 (loc, value, strict_binop, cont) ->
+              let value = fill_value value in
+              let cont = fill_value_cont cont in
+              StrictBinOp2 (loc, value, strict_binop, cont)
+          | LazyBinOp (loc, env, lazy_binop, expr, cont) ->
+              let env = fill_env env in
+              let cont = fill_value_cont cont in
+              LazyBinOp (loc, env, lazy_binop, expr, cont)
+          | PerformArgs (loc, env, name, exprs, values, cont) ->
+              let env = fill_env env in
+              let values = List.map fill_value values in
+              let cont = fill_value_cont cont in
+              PerformArgs (loc, env, name, exprs, values, cont)
+          | Compose (cont1, cont2) ->
+              let cont1 = fill_value_cont cont1 in
+              begin
+                match result with
+                | Value ->
+                    let cont2 = fill_value_cont cont2 in
+                    Compose (cont1, cont2)
+                | EnvValue ->
+                    let cont2 = fill_value_env_cont cont2 in
+                    Compose (cont1, cont2)
+              end
+        and fill_value_env_cont : read_cont -> (env * value, r) Eval.cont =
+          function
+          | Done -> begin
+              match result with
+              | EnvValue -> Done
+              | Value ->
+                  raise
+                    (DeserializationError
+                       (ContTypeError
+                          {
+                            expected = "value cont";
+                            actual = "(env, value) cont";
+                          }))
+            end
+          | IgnoreEnv cont ->
+              let cont = fill_value_cont cont in
+              IgnoreEnv cont
+          | EvalSequence (env, statements, cont) ->
+              let env = fill_env env in
+              let cont = fill_value_env_cont cont in
+              EvalSequence (env, statements, cont)
+          | _ ->
+              raise
+                (DeserializationError
+                   (ContTypeError
+                      { expected = "(env * value) cont"; actual = "value cont" }))
+        in
+        let cont = read_cont state in
+        fill_value_cont cont
+      in
+      with_r result_type

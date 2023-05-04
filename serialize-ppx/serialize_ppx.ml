@@ -1,6 +1,6 @@
 open Ppxlib
 
-let expand_str ~loc ~path _ = raise (Failure "BBB")
+let expand_str ~loc ~path _ = raise (Failure "TODO")
 
 let str_type_decl_generator =
   Deriving.Generator.make_noarg

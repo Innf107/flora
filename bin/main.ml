@@ -48,7 +48,10 @@ let rec parse_args options = function
 
 let run_repl env options =
   let rec go env =
-    match Bestline.bestline_with_history "\x1b[95m\x1b[38;2;255;0;255mλ>\x1b[0m " "flora" with
+    match
+      Bestline.bestline_with_history "\x1b[95m\x1b[38;2;255;0;255mλ>\x1b[0m "
+        "flora"
+    with
     | None -> env
     | Some line ->
         Error.handle
@@ -57,13 +60,11 @@ let run_repl env options =
             go env)
           begin
             fun () ->
-              let env, result = 
+              let env, result =
                 match Driver.eval_string ~filename:None env line with
-                | Completed (env, result) -> env, result
-                | Suspended (effect, args, cont) -> 
-                  
-                  Util.todo __LOC__
-                in
+                | Completed (env, result) -> (env, result)
+                | Suspended (effect, args, cont) -> Util.todo __LOC__
+              in
 
               (* TODO: Print this differently if the output is not a tty *)
               print_endline ("- " ^ Syntax.pretty_value result);
@@ -82,7 +83,7 @@ let () =
     match options.read_env_from with
     | None -> Syntax.empty_env
     | Some in_channel -> (
-        try Serialize.deserialize_env in_channel
+        try Serialize.deserialize DeserializeEnv in_channel
         with Serialize.DeserializationError err ->
           begin
             match err with
@@ -92,8 +93,12 @@ let () =
                    environment"
             | InvalidTag { ty; tag } ->
                 prerr_endline
-                  ("Error deserializing envirronment: Invalid tag for type '"
+                  ("Error deserializing environment: Invalid tag for type '"
                  ^ ty ^ "': " ^ string_of_int tag)
+            | ContTypeError { expected; actual } ->
+                prerr_endline
+                  ("Error deserializing environment: Continuation type error\n"
+                 ^ "    expected: " ^ expected ^ "\n      actual: " ^ actual)
           end;
           exit 1)
   in
@@ -104,7 +109,7 @@ let () =
       begin
         match options.write_env_to with
         | None -> ()
-        | Some out_channel -> Serialize.serialize_env out_channel env
+        | Some out_channel -> Serialize.serialize out_channel (SerializeEnv env)
       end
   | Some file -> begin
       Error.handle
@@ -117,14 +122,17 @@ let () =
               In_channel.with_open_text file In_channel.input_all
             in
             let env, value =
-              match Driver.eval_string ~filename:(Some file) initial_env contents with
-              | Completed (env, value) -> env, value
+              match
+                Driver.eval_string ~filename:(Some file) initial_env contents
+              with
+              | Completed (env, value) -> (env, value)
               | Suspended _ -> Util.todo __LOC__
             in
             begin
               match options.write_env_to with
               | None -> ()
-              | Some out_channel -> Serialize.serialize_env out_channel env
+              | Some out_channel ->
+                  Serialize.serialize out_channel (SerializeEnv env)
             end;
             print_endline (Syntax.pretty_value value)
         end

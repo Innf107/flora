@@ -5,5 +5,4 @@
   (pps serialize_ppx)))
 
 (menhir
- (modules parser)
- (flags --explain))
+ (modules parser))
