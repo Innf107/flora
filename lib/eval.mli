@@ -57,3 +57,5 @@ type 'r eval_result =
 
 val eval : env -> expr -> value eval_result
 val eval_statements : env -> statement list -> (env * value) eval_result
+
+val continue : ('a, 'r) cont -> 'a -> 'r eval_result
