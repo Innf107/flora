@@ -70,15 +70,13 @@ let run_repl env options =
             go env)
           begin
             fun () ->
-              let env, result =
-                match Driver.eval_string ~filename:None env line with
-                | Completed (env, result) -> (env, result)
-                | Suspended (effect, args, cont) -> Util.todo __LOC__
-              in
-
-              (* TODO: Print this differently if the output is not a tty *)
-              print_endline (Syntax.pretty_value result);
-              go env
+              match Driver.eval_string ~filename:None env line with
+              | Suspended (effect, args, cont) ->
+                  prerr_endline ("Unhandled effect: " ^ effect);
+                  go env
+              | Completed (env, result) ->
+                  print_endline ("- " ^ Syntax.pretty_value result);
+                  go env
           end
   in
   go env
@@ -95,8 +93,9 @@ let handle_result options result =
              ^ "'. You can enable effect handling with --effects FILE");
             exit 1
         | Some file ->
-            Out_channel.with_open_bin file (Serialize.serialize (SerializeCont cont));
-            
+            Out_channel.with_open_bin file
+              (Serialize.serialize (SerializeCont cont));
+
             Tojson.(
               output_to stdout
                 (Tojson.obj (fun obj ->
@@ -109,10 +108,23 @@ let handle_result options result =
   begin
     match options.write_env_to_file with
     | None -> ()
-    | Some file -> 
-      Out_channel.with_open_bin file (Serialize.serialize (SerializeEnv env))
+    | Some file ->
+        Out_channel.with_open_bin file (Serialize.serialize (SerializeEnv env))
   end;
   print_endline (Syntax.pretty_value value)
+
+let run_file in_channel ~filename initial_env options =
+  Error.handle
+    ~handler:(fun error ->
+      prerr_endline ("ERROR: " ^ Error.pretty error);
+      exit 1)
+    begin
+      fun () ->
+        let contents = In_channel.input_all in_channel in
+
+        let result = Driver.eval_string ~filename initial_env contents in
+        handle_result options result
+    end
 
 let () =
   let initial_options =
@@ -173,27 +185,20 @@ let () =
   | None -> begin
       match options.file_to_run with
       | None ->
-          let env = run_repl initial_env options in
-          begin
+          if Unix.isatty Unix.stdin then begin
+            let env = run_repl initial_env options in
+
             match options.write_env_to_file with
             | None -> ()
             | Some file ->
-                Out_channel.with_open_bin file (Serialize.serialize (SerializeEnv env))
+                Out_channel.with_open_bin file
+                  (Serialize.serialize (SerializeEnv env))
           end
-      | Some file -> begin
-          Error.handle
-            ~handler:(fun error ->
-              prerr_endline ("ERROR: " ^ Error.pretty error);
-              exit 1)
-            begin
-              fun () ->
-                let contents =
-                  In_channel.with_open_text file In_channel.input_all
-                in
-                let result =
-                  Driver.eval_string ~filename:(Some file) initial_env contents
-                in
-                handle_result options result
-            end
+          else begin
+            run_file stdin ~filename:None initial_env options
+          end
+      | Some filename -> begin
+          In_channel.with_open_text filename (fun in_channel ->
+              run_file in_channel ~filename:(Some filename) initial_env options)
         end
     end
