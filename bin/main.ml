@@ -111,7 +111,9 @@ let handle_result options result =
     | Some file ->
         Out_channel.with_open_bin file (Serialize.serialize (SerializeEnv env))
   end;
-  print_endline (Syntax.pretty_value value)
+  match value with
+  | Syntax.String str -> print_endline str
+  | _ -> print_endline (Syntax.pretty_value value)
 
 let run_file in_channel ~filename initial_env options =
   Error.handle
