@@ -160,7 +160,8 @@ let () =
       | Some file ->
           Error.handle
             ~handler:(fun error ->
-              prerr_endline ("ERROR: " ^ Error.pretty error))
+              prerr_endline ("ERROR: " ^ Error.pretty error);
+              exit 1)
             begin
               fun () ->
                 let _env, argument_value =
