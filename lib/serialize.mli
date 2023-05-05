@@ -19,7 +19,7 @@ type serialization_target =
   | SerializeEnv of env
   | SerializeCont : ('a, 'r) Eval.cont -> serialization_target
 
-val serialize : out_channel -> serialization_target -> unit
+val serialize : serialization_target -> out_channel -> unit
 
 type 'r cont_result =
   | Value : value cont_result

@@ -2,12 +2,14 @@ type t =
   | LexicalError of Lexer.lexical_error
   | ParseError (* TODO: Carry the source location of the parse error *)
   | EvalError of Loc.t * Eval.eval_error
+  | DeserializationError of Serialize.deserialization_error
 
 let handle ~handler cont =
   try cont () with
   | Lexer.LexicalError error -> handler (LexicalError error)
   | Parser.Error -> handler ParseError
   | Eval.EvalError (loc, error) -> handler (EvalError (loc, error))
+  | Serialize.DeserializationError err -> handler (DeserializationError err)
 
 let pretty = function
   | LexicalError error -> begin
@@ -36,5 +38,17 @@ let pretty = function
     | IncorrectNumberOfArgsToContinuation actual -> 
       "Incorrect number of arguments to handled continuation.\n"
       ^ "    Expected exactly one argument\n"
-      ^ "      Actual: " ^ string_of_int actual  
+      ^ "      Actual: " ^ string_of_int actual
   end
+  | DeserializationError (error) -> begin match error with 
+    | Serialize.EOF -> "Error during deserialization: Unexpected end of file"
+    | InvalidTag { ty; tag } ->
+      
+        ("Error during deserialization: Invalid tag for type '" ^ ty ^ "': " ^ string_of_int tag)
+    | ContTypeError { expected; actual } ->
+      
+        ("Error deserializing environment: Continuation type error\n"
+      ^ "    expected: " ^ expected ^ "\n"
+      ^ "      actual: " ^ actual)
+
+    end

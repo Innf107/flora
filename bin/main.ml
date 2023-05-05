@@ -2,9 +2,9 @@ open Flora
 
 type flora_options = {
   file_to_run : string option;
-  write_env_to : out_channel option;
-  read_env_from : in_channel option;
-  effect_channel : out_channel option;
+  write_env_to_file : string option;
+  read_env_from_file : string option;
+  write_effects_to_file : string option;
   is_continue : string option;
 }
 
@@ -34,19 +34,16 @@ let rec parse_args options = function
       print_endline usage;
       exit 0
   | "--effects" :: file :: rest ->
-      let out_channel = open_out file in
-      parse_args { options with effect_channel = Some out_channel } rest
+      parse_args { options with write_effects_to_file = Some file } rest
   | [ "--effects" ] -> error_usage "Option '--write-env' expects an argument"
   | "--continue" :: expr :: rest ->
       parse_args { options with is_continue = Some expr } rest
   | [ "--continue" ] -> error_usage "Option '--continue' expects an argument"
   | "--write-env" :: file :: rest ->
-      let out_channel = open_out file in
-      parse_args { options with write_env_to = Some out_channel } rest
+      parse_args { options with write_env_to_file = Some file } rest
   | [ "--write-env" ] -> error_usage "Option '--write-env' expects an argument"
   | "--read-env" :: file :: rest ->
-      let in_channel = open_in file in
-      parse_args { options with read_env_from = Some in_channel } rest
+      parse_args { options with read_env_from_file = Some file } rest
   | [ "--read-env" ] -> error_usage "Option '--read-env' expects an argument"
   | "--trace" :: category :: rest ->
       if Trace.try_set_enabled category true then parse_args options rest
@@ -80,7 +77,7 @@ let run_repl env options =
               in
 
               (* TODO: Print this differently if the output is not a tty *)
-              print_endline ("- " ^ Syntax.pretty_value result);
+              print_endline (Syntax.pretty_value result);
               go env
           end
   in
@@ -91,15 +88,15 @@ let handle_result options result =
     match result with
     | Eval.Completed (env, value) -> (env, value)
     | Suspended (effect, arguments, cont) -> begin
-        match options.effect_channel with
+        match options.write_effects_to_file with
         | None ->
             prerr_endline
               ("Unhandled effect '" ^ effect
              ^ "'. You can enable effect handling with --effects FILE");
             exit 1
-        | Some out_channel ->
-            Serialize.serialize out_channel (SerializeCont cont);
-            close_out out_channel;
+        | Some file ->
+            Out_channel.with_open_bin file (Serialize.serialize (SerializeCont cont));
+            
             Tojson.(
               output_to stdout
                 (Tojson.obj (fun obj ->
@@ -110,9 +107,10 @@ let handle_result options result =
       end
   in
   begin
-    match options.write_env_to with
+    match options.write_env_to_file with
     | None -> ()
-    | Some out_channel -> Serialize.serialize out_channel (SerializeEnv env)
+    | Some file -> 
+      Out_channel.with_open_bin file (Serialize.serialize (SerializeEnv env))
   end;
   print_endline (Syntax.pretty_value value)
 
@@ -120,35 +118,21 @@ let () =
   let initial_options =
     {
       file_to_run = None;
-      write_env_to = None;
-      read_env_from = None;
-      effect_channel = None;
+      write_env_to_file = None;
+      read_env_from_file = None;
+      write_effects_to_file = None;
       is_continue = None;
     }
   in
   let options = parse_args initial_options (List.tl (Array.to_list Sys.argv)) in
 
   let initial_env =
-    match options.read_env_from with
+    match options.read_env_from_file with
     | None -> Syntax.empty_env
-    | Some in_channel -> (
-        try Serialize.deserialize DeserializeEnv in_channel
+    | Some file -> (
+        try In_channel.with_open_bin file (Serialize.deserialize DeserializeEnv)
         with Serialize.DeserializationError err ->
-          begin
-            match err with
-            | Serialize.EOF ->
-                prerr_endline
-                  "Unexpected end of file encountered while deserializing \
-                   environment"
-            | InvalidTag { ty; tag } ->
-                prerr_endline
-                  ("Error deserializing environment: Invalid tag for type '"
-                 ^ ty ^ "': " ^ string_of_int tag)
-            | ContTypeError { expected; actual } ->
-                prerr_endline
-                  ("Error deserializing environment: Continuation type error\n"
-                 ^ "    expected: " ^ expected ^ "\n      actual: " ^ actual)
-          end;
+          prerr_endline (Error.pretty (Error.DeserializationError err));
           exit 1)
   in
 
@@ -191,10 +175,10 @@ let () =
       | None ->
           let env = run_repl initial_env options in
           begin
-            match options.write_env_to with
+            match options.write_env_to_file with
             | None -> ()
-            | Some out_channel ->
-                Serialize.serialize out_channel (SerializeEnv env)
+            | Some file ->
+                Out_channel.with_open_bin file (Serialize.serialize (SerializeEnv env))
           end
       | Some file -> begin
           Error.handle

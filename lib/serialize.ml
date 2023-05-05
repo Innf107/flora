@@ -386,13 +386,13 @@ let rec read_expr state =
 and read_statement state =
   match read_byte state with
   | 0 ->
+      let expr = read_expr state in
+      RunExpr expr
+  | 1 ->
       let loc = read_loc state in
       let name = read_string state in
       let expr = read_expr state in
       Let (loc, name, expr)
-  | 1 ->
-      let expr = read_expr state in
-      RunExpr expr
   | 2 ->
       let loc = read_loc state in
       let name = read_string state in
@@ -671,7 +671,7 @@ type serialization_target =
   | SerializeEnv of env
   | SerializeCont : ('a, 'r) Eval.cont -> serialization_target
 
-let serialize out_channel target =
+let serialize target out_channel =
   let state =
     {
       environments = [];
@@ -681,9 +681,10 @@ let serialize out_channel target =
     }
   in
 
-  let main_index = match target with
-  | SerializeEnv env -> register_env_index state env 
-  | _ -> -1
+  let main_index =
+    match target with
+    | SerializeEnv env -> register_env_index state env
+    | _ -> -1
   in
 
   let rec write_environments () =
@@ -694,12 +695,15 @@ let serialize out_channel target =
         write_environment_delta state previous delta;
         write_environments ()
   in
-  write_environments ();
-  write_bool state false;
   match target with
-  | SerializeEnv _ -> write_int state main_index
+  | SerializeEnv _ ->
+      write_environments ();
+      write_bool state false;
+      write_int state main_index
   | SerializeCont cont ->
-    write_cont state cont
+      write_cont state cont;
+      write_environments ();
+      write_bool state false
 
 type 'r cont_result =
   | Value : value cont_result
@@ -707,11 +711,19 @@ type 'r cont_result =
 
 type 'a deserialization_target =
   | DeserializeEnv : env deserialization_target
-  | DeserializeCont : 'r cont_result -> (value, 'r) Eval.cont deserialization_target
+  | DeserializeCont :
+      'r cont_result
+      -> (value, 'r) Eval.cont deserialization_target
 
 let deserialize : type a. a deserialization_target -> in_channel -> a =
  fun target in_channel ->
   let state = { in_channel } in
+
+  let cont =
+    match target with
+    | DeserializeEnv -> None
+    | DeserializeCont _ -> Some (read_cont state)
+  in
 
   let env_deltas = read_environment_deltas state in
 
@@ -891,7 +903,11 @@ let deserialize : type a. a deserialization_target -> in_channel -> a =
                    (ContTypeError
                       { expected = "(env * value) cont"; actual = "value cont" }))
         in
-        let cont = read_cont state in
+        let cont =
+          match cont with
+          | None -> Util.panic __LOC__ "Unreachable: unread continuation"
+          | Some cont -> cont
+        in
         fill_value_cont cont
       in
       with_r result_type
