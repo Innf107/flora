@@ -6,6 +6,7 @@ type flora_options = {
   read_env_from_file : string option;
   write_effects_to_file : string option;
   is_continue : [ `Raw of string | `Expr of string | `No ];
+  bound_vars : (string * [ `Raw of string | `Expr of string ]) list;
 }
 
 let usage =
@@ -19,7 +20,8 @@ let usage =
                                   without needing delimiters
       --write-env FILE            Write the final evaluation environment to FILE
       --read-env FILE             Read the initial evaluation environment from FILE
-      --bind NAME [--string] EXPR 
+      --bind NAME [--string] EXPR Extend the input environment by a binding. Passing --string will treat the argument as
+                                  a raw string literal without needing delimiters.
 
       --trace CATEGORY            Enable interpreter traces for debugging purposes.
                                     Possible values: |}
@@ -49,7 +51,21 @@ let rec parse_args options = function
   | [ "--write-env" ] -> error_usage "Option '--write-env' expects an argument"
   | "--read-env" :: file :: rest ->
       parse_args { options with read_env_from_file = Some file } rest
-  | [ "--read-env" ] -> error_usage "Option '--read-env' expects an argument"
+  | [ "--read" ] -> error_usage "Option '--read-env' expects an argument"
+  | "--bind" :: name :: "--string" :: str :: rest ->
+      parse_args
+        { options with bound_vars = (name, `Raw str) :: options.bound_vars }
+        rest
+  | "--bind" :: "--string" :: _ ->
+      error_usage "Option '--bind' expects an argument before --string"
+  | [ "--bind"; _; "--string" ] ->
+      error_usage "Option '--bind' expects two arguments"
+  | "--bind" :: name :: expr :: rest ->
+      parse_args
+        { options with bound_vars = (name, `Expr expr) :: options.bound_vars }
+        rest
+  | [ "--bind" ] | [ "--bind"; _ ] ->
+      error_usage "Option '--bind' expects two arguments"
   | "--trace" :: category :: rest ->
       if Trace.try_set_enabled category true then parse_args options rest
       else error_usage ("Invalid trace category: '" ^ category ^ "'")
@@ -142,6 +158,7 @@ let () =
       read_env_from_file = None;
       write_effects_to_file = None;
       is_continue = `No;
+      bound_vars = [];
     }
   in
   let options = parse_args initial_options (List.tl (Array.to_list Sys.argv)) in
@@ -154,6 +171,27 @@ let () =
         with Serialize.DeserializationError err ->
           prerr_endline (Error.pretty (Error.DeserializationError err));
           exit 1)
+  in
+
+  let eval_binding name = function
+    | `Raw str -> Syntax.String str
+    | `Expr expr_str -> begin
+        match Driver.eval_string ~filename:None Syntax.empty_env expr_str with
+        | Completed (_, value) -> value
+        | Suspended (effect, _, _) ->
+            prerr_endline
+              ("Error evaluating binding for '" ^ name ^ "': Unhandled effect: "
+             ^ effect);
+            exit 1
+      end
+  in
+
+  let initial_env =
+    Syntax.bind_variables
+      (Seq.map
+         (fun (name, value) -> (name, eval_binding name value))
+         (List.to_seq options.bound_vars))
+      initial_env
   in
 
   match options.is_continue with

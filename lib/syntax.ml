@@ -51,11 +51,11 @@ and expr =
   | Perform of loc * name * expr list
   | Handle of loc * expr * (name * name list * name * expr) list
 
-(* See Note [Continuation Representation] 
+(* See Note [Continuation Representation]
 
-  The type of continuations should be kept abstract to consumers of this module, 
-  but we don't have an mli file because of the type definitions.
-  That's why we use this hack to keep continuations abstract to the outside *)
+   The type of continuations should be kept abstract to consumers of this module,
+   but we don't have an mli file because of the type definitions.
+   That's why we use this hack to keep continuations abstract to the outside *)
 include (
   struct
     type continuation = Obj.t
@@ -90,6 +90,20 @@ let empty_env =
     previous = None;
     delta = { variables = NameMap.empty };
   }
+
+let bind_variables bindings env =
+  {
+    contents =
+      {
+        env.contents with
+        variables = NameMap.add_seq bindings env.contents.variables;
+      };
+    delta = { variables = NameMap.of_seq bindings };
+    previous = Some env;
+  }
+
+let bind_variable name value env =
+  bind_variables (List.to_seq [ (name, value) ]) env
 
 let pretty_literal = function
   | NumberLit f -> string_of_float f
@@ -142,7 +156,7 @@ let rec pretty_value = function
    with all the sharing it needs.
 *)
 
-(* Note [Continuation Representation] 
+(* Note [Continuation Representation]
 
    Continuations should be represented by the type (value, value) Eval.cont.
    Unfortunately, Eval depends on this module, so we cannot actually include that type here
@@ -152,5 +166,5 @@ let rec pretty_value = function
    We cast continuations to Obj.t (equivalent to e.g. void* in C or Any in Haskell) to avoid any mutual recursion.
    Eval then casts those back to (value, value) cont values to process them.
    This gives up a bit of type safety, so we need to make absolutely sure that Continuation values
-   never store anything other than actual continuations or we will end up with segmentation faults. 
+   never store anything other than actual continuations or we will end up with segmentation faults.
 *)

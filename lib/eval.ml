@@ -29,19 +29,6 @@ let invalid_operator_args loc operator expected actual =
          InvalidOperatorArgs
            { operator; expected; actual = List.map (fun x -> Some x) actual } ))
 
-let bind_variables bindings env =
-  {
-    contents =
-      {
-        env.contents with
-        variables = NameMap.add_seq bindings env.contents.variables;
-      };
-    delta = { variables = NameMap.of_seq bindings };
-    previous = Some env;
-  }
-
-let bind_variable name value env =
-  bind_variables (List.to_seq [ (name, value) ]) env
 
 let eval_literal = function
   | NumberLit x -> Number x
