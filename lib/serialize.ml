@@ -116,11 +116,11 @@ let read_int state =
       let buffer = Bytes.create 8 in
       Bytes.set buffer 0 (Char.chr initial_byte);
       begin
-        match In_channel.input state.in_channel buffer 1 7 with
-        | 7 ->
+        match In_channel.really_input state.in_channel buffer 1 7 with
+        | Some () ->
             Int64.to_int
               (Int64.shift_right_logical (Bytes.get_int64_le buffer 0) 1)
-        | _ -> raise (DeserializationError EOF)
+        | None -> raise (DeserializationError EOF)
       end
 
 let write_float state float =
@@ -130,9 +130,9 @@ let write_float state float =
 
 let read_float state =
   let buffer = Bytes.create 8 in
-  match In_channel.input state.in_channel buffer 0 8 with
-  | 8 -> Int64.float_of_bits (Bytes.get_int64_le buffer 0)
-  | _ -> raise (DeserializationError EOF)
+  match In_channel.really_input state.in_channel buffer 0 8 with
+  | Some () -> Int64.float_of_bits (Bytes.get_int64_le buffer 0)
+  | None -> raise (DeserializationError EOF)
 
 let write_bool state bool = write_byte state (if bool then 1 else 0)
 
@@ -157,9 +157,9 @@ let write_string state str =
 let read_string state =
   let size = read_int state in
   let bytes = Bytes.create size in
-  match In_channel.input state.in_channel bytes 0 size with
-  | written when written = size -> String.of_bytes bytes
-  | _ -> raise (DeserializationError EOF)
+  match In_channel.really_input state.in_channel bytes 0 size with
+  | Some () -> String.of_bytes bytes
+  | None -> raise (DeserializationError EOF)
 
 let rec register_env_index state env =
   match

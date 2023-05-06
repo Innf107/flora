@@ -175,15 +175,23 @@ let () =
 
   let eval_binding name = function
     | `Raw str -> Syntax.String str
-    | `Expr expr_str -> begin
-        match Driver.eval_string ~filename:None Syntax.empty_env expr_str with
-        | Completed (_, value) -> value
-        | Suspended (effect, _, _) ->
-            prerr_endline
-              ("Error evaluating binding for '" ^ name ^ "': Unhandled effect: "
-             ^ effect);
-            exit 1
-      end
+    | `Expr expr_str ->
+        Error.handle
+          ~handler:(fun error ->
+            prerr_endline ("ERROR: " ^ Error.pretty error);
+            exit 1)
+          begin
+            fun () ->
+              match
+                Driver.eval_string ~filename:None Syntax.empty_env expr_str
+              with
+              | Completed (_, value) -> value
+              | Suspended (effect, _, _) ->
+                  prerr_endline
+                    ("Error evaluating binding for '" ^ name
+                   ^ "': Unhandled effect: " ^ effect);
+                  exit 1
+          end
   in
 
   let initial_env =
