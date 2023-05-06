@@ -13,6 +13,7 @@ type deserialization_error =
       expected : string;
       actual : string;
     }
+  | NotAFloraEnvironment
 
 exception DeserializationError of deserialization_error
 
@@ -695,6 +696,9 @@ let serialize target out_channel =
         write_environment_delta state previous delta;
         write_environments ()
   in
+  write_byte state 0xF1;
+  write_byte state 0x05;
+  write_byte state 0xA0;
   match target with
   | SerializeEnv _ ->
       write_environments ();
@@ -718,6 +722,15 @@ type 'a deserialization_target =
 let deserialize : type a. a deserialization_target -> in_channel -> a =
  fun target in_channel ->
   let state = { in_channel } in
+
+  let magic_byte1 = read_byte state in
+  let magic_byte2 = read_byte state in
+  let magic_byte3 = read_byte state in
+  begin
+    match (magic_byte1, magic_byte2, magic_byte3) with
+    | 0xF1, 0x05, 0xA0 -> ()
+    | _ -> raise (DeserializationError NotAFloraEnvironment)
+  end;
 
   let cont =
     match target with

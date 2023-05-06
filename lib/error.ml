@@ -50,5 +50,6 @@ let pretty = function
         ("Error deserializing environment: Continuation type error\n"
       ^ "    expected: " ^ expected ^ "\n"
       ^ "      actual: " ^ actual)
-
+    | NotAFloraEnvironment ->
+      "Error deserializing environment: File is not a flora environment"
     end

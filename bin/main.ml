@@ -19,6 +19,7 @@ let usage =
                                   without needing delimiters
       --write-env FILE            Write the final evaluation environment to FILE
       --read-env FILE             Read the initial evaluation environment from FILE
+      --bind NAME [--string] EXPR 
 
       --trace CATEGORY            Enable interpreter traces for debugging purposes.
                                     Possible values: |}

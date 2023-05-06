@@ -12,6 +12,7 @@ type deserialization_error =
       expected : string;
       actual : string;
     }
+  | NotAFloraEnvironment
 
 exception DeserializationError of deserialization_error
 
@@ -27,6 +28,8 @@ type 'r cont_result =
 
 type 'a deserialization_target =
   | DeserializeEnv : env deserialization_target
-  | DeserializeCont : 'r cont_result -> (value, 'r) Eval.cont deserialization_target
+  | DeserializeCont :
+      'r cont_result
+      -> (value, 'r) Eval.cont deserialization_target
 
 val deserialize : 'a deserialization_target -> in_channel -> 'a
