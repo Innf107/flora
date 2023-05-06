@@ -117,6 +117,7 @@ let handle_result options result =
   end;
   match value with
   | Syntax.String str -> print_endline str
+  | Syntax.Nil -> ()
   | _ -> print_endline (Syntax.pretty_value value)
 
 let run_file in_channel ~filename initial_env options =
