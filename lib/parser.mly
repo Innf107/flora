@@ -99,16 +99,16 @@ expr4:
 | expr5 { $1 }
 
 binop4:
-| "*" { `Multiply }
-| "/" { `Divide }
+| "+" { `Add }
+| "-" { `Subtract }
 
 expr5:
 | expr5 binop5 expr_leaf { Binop(loc $loc, $1, $2, $3) }
 | expr_leaf { $1 }
 
 binop5:
-| "+" { `Add }
-| "-" { `Subtract }
+| "*" { `Multiply }
+| "/" { `Divide }
 
 expr_leaf:
 | IDENT { Var(loc $loc, $1) }
