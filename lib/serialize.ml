@@ -37,6 +37,7 @@ type read_value =
   | String of string
   | Bool of bool
   | List of read_value list
+  | Primop of primop
   (* TODO: Continuations should be shared similar to environments *)
   | Continuation of read_cont
 
@@ -49,6 +50,9 @@ and read_cont =
       * read_value list
       * expr list
       * read_cont
+      -> read_cont
+  | EvalAppPrimop :
+      primop * read_env * loc * read_value list * expr list * read_cont
       -> read_cont
   | IfCont : loc * read_env * expr * expr * read_cont -> read_cont
   | WithEnv : read_env * read_cont -> read_cont
@@ -402,6 +406,13 @@ and read_statement state =
       LetFun (loc, name, params, body)
   | tag -> raise (DeserializationError (InvalidTag { ty = "statement"; tag }))
 
+let write_primop state = function DynamicVar -> write_byte state 0
+
+and read_primop state =
+  match read_byte state with
+  | 0 -> DynamicVar
+  | tag -> raise (DeserializationError (InvalidTag { ty = "primop"; tag }))
+
 let rec write_value state = function
   | Syntax.Nil -> write_int state 0
   | Number f ->
@@ -421,8 +432,11 @@ let rec write_value state = function
       write_env state (Lazy.force_val env);
       write_list write_string state parameters;
       write_expr state body
-  | Continuation cont ->
+  | Primop primop ->
       write_byte state 6;
+      write_primop state primop
+  | Continuation cont ->
+      write_byte state 7;
       let cont : (value, value) Eval.cont = Obj.magic cont in
       write_cont state cont
 
@@ -448,6 +462,9 @@ and read_value state : read_value =
       let body = read_expr state in
       Closure (env, params, body)
   | 6 ->
+      let op = read_primop state in
+      Primop op
+  | 7 ->
       let cont = read_cont state in
       Continuation cont
   | tag -> raise (DeserializationError (InvalidTag { ty = "value"; tag }))
@@ -475,52 +492,60 @@ and write_cont : type a b. write_state -> (a, b) Eval.cont -> unit =
       write_list write_value state arguments;
       write_list write_expr state argument_exprs;
       write_cont state cont
-  | IfCont (loc, env, then_branch, else_branch, cont) ->
+  | EvalAppPrimop (primop, env, loc, arg_values, arg_exprs, cont) ->
       write_byte state 3;
+      write_primop state primop;
+      write_env state env;
+      write_loc state loc;
+      write_list write_value state arg_values;
+      write_list write_expr state arg_exprs;
+      write_cont state cont
+  | IfCont (loc, env, then_branch, else_branch, cont) ->
+      write_byte state 4;
       write_env state env;
       write_expr state then_branch;
       write_expr state else_branch;
       write_cont state cont
   | WithEnv (env, cont) ->
-      write_byte state 4;
+      write_byte state 5;
       write_env state env;
       write_cont state cont
   | IgnoreEnv cont ->
-      write_byte state 5;
+      write_byte state 6;
       write_cont state cont
   | EvalSequence (env, statements, cont) ->
-      write_byte state 6;
+      write_byte state 7;
       write_env state env;
       write_list write_statement state statements;
       write_cont state cont
   | BindValue (env, name, rest, cont) ->
-      write_byte state 7;
+      write_byte state 8;
       write_env state env;
       write_string state name;
       write_list write_statement state rest;
       write_cont state cont
   | StrictBinOp1 (loc, env, strict_binop, expr, cont) ->
-      write_byte state 8;
+      write_byte state 9;
       write_loc state loc;
       write_env state env;
       write_binop state strict_binop;
       write_expr state expr;
       write_cont state cont
   | StrictBinOp2 (loc, value, strict_binop, cont) ->
-      write_byte state 9;
+      write_byte state 10;
       write_loc state loc;
       write_value state value;
       write_binop state strict_binop;
       write_cont state cont
   | LazyBinOp (loc, env, lazy_binop, expr, cont) ->
-      write_byte state 10;
+      write_byte state 11;
       write_loc state loc;
       write_env state env;
       write_binop state lazy_binop;
       write_expr state expr;
       write_cont state cont
   | PerformArgs (loc, env, name, arg_exprs, arg_values, cont) ->
-      write_byte state 11;
+      write_byte state 12;
       write_loc state loc;
       write_env state env;
       write_string state name;
@@ -528,7 +553,7 @@ and write_cont : type a b. write_state -> (a, b) Eval.cont -> unit =
       write_list write_value state arg_values;
       write_cont state cont
   | Compose (cont1, cont2) ->
-      write_byte state 12;
+      write_byte state 13;
       write_cont state cont1;
       write_cont state cont2
 
@@ -557,31 +582,39 @@ and read_cont : read_state -> read_cont =
           argument_exprs,
           cont )
   | 3 ->
+      let primop = read_primop state in
+      let env = read_env state in
+      let loc = read_loc state in
+      let arg_values = read_list read_value state in
+      let arg_exprs = read_list read_expr state in
+      let cont = read_cont state in
+      EvalAppPrimop (primop, env, loc, arg_values, arg_exprs, cont)
+  | 4 ->
       let loc = read_loc state in
       let env = read_env state in
       let then_branch = read_expr state in
       let else_branch = read_expr state in
       let cont = read_cont state in
       IfCont (loc, env, then_branch, else_branch, cont)
-  | 4 ->
+  | 5 ->
       let env = read_env state in
       let cont = read_cont state in
       WithEnv (env, cont)
-  | 5 ->
+  | 6 ->
       let cont = read_cont state in
       IgnoreEnv cont
-  | 6 ->
+  | 7 ->
       let env = read_env state in
       let statements = read_list read_statement state in
       let cont = read_cont state in
       EvalSequence (env, statements, cont)
-  | 7 ->
+  | 8 ->
       let env = read_env state in
       let name = read_string state in
       let rest = read_list read_statement state in
       let cont = read_cont state in
       BindValue (env, name, rest, cont)
-  | 8 ->
+  | 9 ->
       let loc = read_loc state in
       let env = read_env state in
       let strict_binop =
@@ -595,7 +628,7 @@ and read_cont : read_state -> read_cont =
       let expr = read_expr state in
       let cont = read_cont state in
       StrictBinOp1 (loc, env, strict_binop, expr, cont)
-  | 9 ->
+  | 10 ->
       let loc = read_loc state in
       let value = read_value state in
       let strict_binop =
@@ -608,7 +641,7 @@ and read_cont : read_state -> read_cont =
       in
       let cont = read_cont state in
       StrictBinOp2 (loc, value, strict_binop, cont)
-  | 10 ->
+  | 11 ->
       let loc = read_loc state in
       let env = read_env state in
       let lazy_binop =
@@ -621,7 +654,7 @@ and read_cont : read_state -> read_cont =
       let expr = read_expr state in
       let cont = read_cont state in
       LazyBinOp (loc, env, lazy_binop, expr, cont)
-  | 11 ->
+  | 12 ->
       let loc = read_loc state in
       let env = read_env state in
       let name = read_string state in
@@ -629,7 +662,7 @@ and read_cont : read_state -> read_cont =
       let arg_values = read_list read_value state in
       let cont = read_cont state in
       PerformArgs (loc, env, name, arg_exprs, arg_values, cont)
-  | 12 ->
+  | 13 ->
       let cont1 = read_cont state in
       let cont2 = read_cont state in
       Compose (cont1, cont2)
@@ -793,6 +826,7 @@ let deserialize : type a. a deserialization_target -> in_channel -> a =
     | Closure (index, params, expr) ->
         let env = fill_env index in
         Closure (lazy env, params, expr)
+    | Primop name -> Syntax.Primop name
     | Continuation cont -> Syntax.Continuation (Obj.magic cont)
   in
 
@@ -840,6 +874,11 @@ let deserialize : type a. a deserialization_target -> in_channel -> a =
                   arguments,
                   argument_exprs,
                   cont )
+          | EvalAppPrimop (primop, env, loc, arg_values, arg_exprs, cont) ->
+              let env = fill_env env in
+              let arg_values = List.map fill_value arg_values in
+              let cont = fill_value_cont cont in
+              EvalAppPrimop (primop, env, loc, arg_values, arg_exprs, cont)
           | IfCont (loc, env, then_branch, else_branch, cont) ->
               let env = fill_env env in
               let cont = fill_value_cont cont in

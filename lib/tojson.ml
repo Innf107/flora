@@ -62,4 +62,5 @@ let rec value = function
   | Bool x -> bool x
   | List items -> list value items
   | Closure _ -> raise (Error (Unsupported `Closure))
+  | Primop _ -> raise (Error (Unsupported `Closure))
   | Continuation _ -> raise (Error (Unsupported `Continuation))

@@ -39,6 +39,10 @@ let pretty = function
       "Incorrect number of arguments to handled continuation.\n"
       ^ "    Expected exactly one argument\n"
       ^ "      Actual: " ^ string_of_int actual
+    | PrimopArgumentError { primop; expected; actual } ->
+      "Incorrect arguments to primitive function " ^ Syntax.pretty_primop primop ^ ".\n"
+    ^ "    Expected: " ^ expected ^ "\n"
+    ^ "      Actual: (" ^ String.concat ", " (List.map Syntax.pretty_value actual) ^ ")"
   end
   | DeserializationError (error) -> begin match error with 
     | Serialize.EOF -> "Error during deserialization: Unexpected end of file"

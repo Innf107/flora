@@ -19,6 +19,11 @@ type eval_error =
       actual : int;
     }
   | IncorrectNumberOfArgsToContinuation of int
+  | PrimopArgumentError of {
+      primop : primop;
+      expected : string;
+      actual : value list;
+    }
 
 exception EvalError of loc * eval_error
 
@@ -28,7 +33,6 @@ let invalid_operator_args loc operator expected actual =
        ( loc,
          InvalidOperatorArgs
            { operator; expected; actual = List.map (fun x -> Some x) actual } ))
-
 
 let eval_literal = function
   | NumberLit x -> Number x
@@ -50,6 +54,9 @@ type ('a, 'r) cont =
   | EvalAppFun : loc * env * expr list * (value, 'r) cont -> (value, 'r) cont
   | EvalAppArgs :
       (env * name list * expr) * env * value list * expr list * (value, 'r) cont
+      -> (value, 'r) cont
+  | EvalAppPrimop :
+      primop * env * loc * value list * expr list * (value, 'r) cont
       -> (value, 'r) cont
   | IfCont : loc * env * expr * expr * (value, 'r) cont -> (value, 'r) cont
   | WithEnv : env * (env * value, 'r) cont -> (value, 'r) cont
@@ -106,6 +113,13 @@ let rec continue : type a r. (a, r) cont -> a -> r eval_result =
                        rest,
                        cont ))
           end
+      | Primop primop -> begin
+          match argument_exprs with
+          | [] -> eval_primop env loc primop [] cont
+          | expr :: rest ->
+              eval_cont env expr
+                (EvalAppPrimop (primop, env, loc, [], rest, cont))
+        end
       | Continuation called_continuation -> begin
           match argument_exprs with
           | [ arg_expr ] ->
@@ -139,6 +153,13 @@ let rec continue : type a r. (a, r) cont -> a -> r eval_result =
       | expr :: rest ->
           eval_cont env expr
             (EvalAppArgs (closure, env, argument :: arg_values, rest, cont))
+    end
+  | EvalAppPrimop (primop, env, loc, arg_values, arg_exprs, cont) -> begin
+      match arg_exprs with
+      | [] -> eval_primop env loc primop (argument :: arg_values) cont
+      | expr :: rest ->
+          eval_cont env expr
+            (EvalAppPrimop (primop, env, loc, argument :: arg_values, rest, cont))
     end
   | IfCont (loc, env, then_branch, else_branch, cont) -> begin
       match argument with
@@ -195,7 +216,11 @@ and eval_cont : type r. env -> expr -> (value, r) cont -> r eval_result =
   match expr with
   | Var (loc, name) -> begin
       match NameMap.find_opt name env.contents.variables with
-      | None -> raise (EvalError (loc, VarNotFound name))
+      | None -> begin
+          match parse_primop name with
+          | None -> raise (EvalError (loc, VarNotFound name))
+          | Some primop -> continue cont (Primop primop)
+        end
       | Some value -> continue cont value
     end
   | App (loc, function_expr, argument_exprs) ->
@@ -256,6 +281,25 @@ and eval_cont : type r. env -> expr -> (value, r) cont -> r eval_result =
               end
           | None -> Util.todo __LOC__
         end
+    end
+
+and eval_primop :
+    type r.
+    env -> loc -> primop -> value list -> (value, r) cont -> r eval_result =
+ fun env loc primop arguments cont ->
+  match primop with
+  | DynamicVar -> begin
+      match arguments with
+      | [ String var_name ] -> (
+          match NameMap.find_opt var_name env.contents.variables with
+          | Some value -> continue cont value
+          | None -> continue cont Nil)
+      | values ->
+          raise
+            (EvalError
+               ( loc,
+                 PrimopArgumentError
+                   { primop; expected = "(String)"; actual = values } ))
     end
 
 and eval_statements :

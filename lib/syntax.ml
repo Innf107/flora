@@ -64,6 +64,10 @@ include (
       type continuation
     end)
 
+type primop = DynamicVar
+
+let parse_primop = function "dynamicVar" -> Some DynamicVar | _ -> None
+
 type value =
   | Nil
   | Number of float
@@ -72,6 +76,7 @@ type value =
   | List of value list
   (* The environment needs to be lazy to allow recursive definitions *)
   | Closure of env Lazy.t * name list * expr
+  | Primop of primop
   (* See Note [Continuation Representation]*)
   | Continuation of continuation
 
@@ -105,6 +110,8 @@ let bind_variables bindings env =
 let bind_variable name value env =
   bind_variables (List.to_seq [ (name, value) ]) env
 
+let pretty_primop = function DynamicVar -> "dynamicVar"
+
 let pretty_literal = function
   | NumberLit f -> string_of_float f
   | StringLit str -> "\"" ^ str ^ "\""
@@ -130,11 +137,12 @@ let pretty_binop : binop -> string = function
 let rec pretty_value = function
   | Number f -> string_of_float f
   | String str -> "\"" ^ str ^ "\""
-  | Closure (_, params, expr) ->
-      "(\\[closure](" ^ String.concat ", " params ^ ") -> ...)"
   | Bool bool -> string_of_bool bool
   | List list -> "[" ^ String.concat ", " (List.map pretty_value list) ^ "]"
   | Nil -> "nil"
+  | Closure (_, params, _) ->
+      "<[closure](" ^ String.concat ", " params ^ ") -> ...>"
+  | Primop _ -> "<primitive closure>"
   | Continuation _ -> "<continuation ...>"
 
 (* Note [Environment Provenance]

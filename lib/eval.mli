@@ -18,6 +18,11 @@ type eval_error =
       actual : int;
     }
   | IncorrectNumberOfArgsToContinuation of int
+  | PrimopArgumentError of {
+      primop : primop;
+      expected : string;
+      actual : value list;
+    }
 
 exception EvalError of loc * eval_error
 
@@ -26,6 +31,9 @@ type ('a, 'r) cont =
   | EvalAppFun : loc * env * expr list * (value, 'r) cont -> (value, 'r) cont
   | EvalAppArgs :
       (env * name list * expr) * env * value list * expr list * (value, 'r) cont
+      -> (value, 'r) cont
+  | EvalAppPrimop :
+      primop * env * loc * value list * expr list * (value, 'r) cont
       -> (value, 'r) cont
   | IfCont : loc * env * expr * expr * (value, 'r) cont -> (value, 'r) cont
   | WithEnv : env * (env * value, 'r) cont -> (value, 'r) cont
@@ -48,14 +56,12 @@ type ('a, 'r) cont =
   | PerformArgs :
       loc * env * name * expr list * value list * (value, 'r) cont
       -> (value, 'r) cont
-  | Compose :
-    ('a, 'b) cont * ('b, 'c) cont -> ('a, 'c) cont
-  
+  | Compose : ('a, 'b) cont * ('b, 'c) cont -> ('a, 'c) cont
+
 type 'r eval_result =
   | Completed of 'r
   | Suspended of name * value list * (value, 'r) cont
 
 val eval : env -> expr -> value eval_result
 val eval_statements : env -> statement list -> (env * value) eval_result
-
 val continue : ('a, 'r) cont -> 'a -> 'r eval_result

@@ -4,32 +4,6 @@ open Flora
 type eval_result_or_error = < status : Js.js_string Js.t Js.readonly_prop >
 type reified_value = < kind : Js.js_string Js.t Js.readonly_prop >
 
-let encode_eval_result :
-    (Syntax.env * Syntax.value) Eval.eval_result -> eval_result_or_error Js.t =
-  function
-  | Eval.Completed (env, value) ->
-      (object%js
-         val status = Js.string "completed"
-         val env = env
-         val value = value
-       end
-        :> eval_result_or_error Js.t)
-  | Eval.Suspended (effect, arguments, cont) ->
-      (object%js
-         val status = Js.string "suspended"
-         val arguments = arguments
-         val cont = cont
-       end
-        :> eval_result_or_error Js.t)
-
-let encode_error : Error.t -> eval_result_or_error Js.t =
- fun err ->
-  (object%js
-     val status = Js.string "error"
-     val message = Js.string (Error.pretty err)
-   end
-    :> eval_result_or_error Js.t)
-
 let rec reify_value : Syntax.value -> reified_value Js.t = function
   | Syntax.Nil ->
       (object%js
@@ -64,6 +38,12 @@ let rec reify_value : Syntax.value -> reified_value Js.t = function
       (object%js
          val kind = Js.string "Closure"
          val value = (env_lazy, params, expr)
+       end
+        :> reified_value Js.t)
+  | Primop name ->
+      (object%js
+         val kind = Js.string "Primop"
+         val value = name
        end
         :> reified_value Js.t)
   | Continuation cont ->
@@ -120,6 +100,14 @@ let rec reflect_value : reified_value Js.t -> Syntax.value =
       in
       let env, params, body = reified##.value in
       Syntax.Closure (env, params, body)
+  | "Primop" ->
+      let reified :
+          < kind : Js.js_string Js.t Js.readonly_prop
+          ; value : Syntax.primop Js.readonly_prop >
+          Js.t =
+        Js.Unsafe.coerce reified
+      in
+      Syntax.Primop reified##.value
   | "Continuation" ->
       let reified :
           < kind : Js.js_string Js.t Js.readonly_prop
@@ -129,6 +117,32 @@ let rec reflect_value : reified_value Js.t -> Syntax.value =
       in
       Syntax.Continuation reified##.value
   | kind -> raise (Failure ("Invalid flora value kind '" ^ kind ^ "'"))
+
+let encode_eval_result :
+    (Syntax.env * Syntax.value) Eval.eval_result -> eval_result_or_error Js.t =
+  function
+  | Eval.Completed (env, value) ->
+      (object%js
+         val status = Js.string "Completed"
+         val env = env
+         val value = reify_value value
+       end
+        :> eval_result_or_error Js.t)
+  | Eval.Suspended (effect, arguments, cont) ->
+      (object%js
+         val status = Js.string "Suspended"
+         val arguments = arguments
+         val cont = cont
+       end
+        :> eval_result_or_error Js.t)
+
+let encode_error : Error.t -> eval_result_or_error Js.t =
+ fun err ->
+  (object%js
+     val status = Js.string "Error"
+     val message = Js.string (Error.pretty err)
+   end
+    :> eval_result_or_error Js.t)
 
 let () =
   Js.export "Flora"
