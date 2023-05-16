@@ -42,6 +42,7 @@ let eval_literal = function
 
 let rec equal_value left_value right_value =
   match (left_value, right_value) with
+  | Nil, Nil -> true
   | Number x, Number y -> Float.equal x y
   | String x, String y -> String.equal x y
   | Bool x, Bool y -> Bool.equal x y
