@@ -19,7 +19,7 @@
  (name flora)
  (synopsis "A short synopsis")
  (description "A longer description")
- (depends ocaml dune menhir bestline typerep)
+ (depends ocaml dune menhir bestline js_of_ocaml-ppx)
  (tags
   (topics "to describe" your project)))
 

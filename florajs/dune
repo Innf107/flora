@@ -1,0 +1,8 @@
+(executable
+ (name florajs)
+ (modes js)
+ (libraries flora js_of_ocaml-ppx)
+ (preprocess
+  (pps js_of_ocaml-ppx))
+ (js_of_ocaml
+  (flags --enable=effects --target-env browser)))

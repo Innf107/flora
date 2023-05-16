@@ -14,7 +14,7 @@ depends: [
   "dune" {>= "3.6"}
   "menhir"
   "bestline"
-  "typerep"
+  "js_of_ocaml-ppx"
   "odoc" {with-doc}
 ]
 build: [
