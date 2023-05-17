@@ -45,6 +45,7 @@ and expr =
   | App of loc * expr * expr list
   | Lambda of loc * name list * expr
   | Literal of loc * literal
+  | ListLiteral of loc * expr list
   | Binop of loc * expr * binop * expr
   | If of loc * expr * expr * expr
   | Sequence of statement list

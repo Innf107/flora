@@ -81,6 +81,9 @@ type ('a, 'r) cont =
       loc * env * name * expr list * value list * (value, 'r) cont
       -> (value, 'r) cont
   | Compose : ('a, 'b) cont * ('b, 'c) cont -> ('a, 'c) cont
+  | EvalListLiteral :
+      env * value list * expr list * (value, 'r) cont
+      -> (value, 'r) cont
 
 type 'r eval_result =
   | Completed of 'r
@@ -147,7 +150,7 @@ let rec continue : type a r. (a, r) cont -> a -> r eval_result =
             bind_variables
               (Seq.zip
                  (List.to_seq closure_names)
-                 (List.to_seq (argument :: arg_values)))
+                 (List.to_seq (List.rev (argument :: arg_values))))
               closure_env
           in
           eval_cont updated_env closure_body cont
@@ -157,7 +160,8 @@ let rec continue : type a r. (a, r) cont -> a -> r eval_result =
     end
   | EvalAppPrimop (primop, env, loc, arg_values, arg_exprs, cont) -> begin
       match arg_exprs with
-      | [] -> eval_primop env loc primop (argument :: arg_values) cont
+      | [] ->
+          eval_primop env loc primop (List.rev (argument :: arg_values)) cont
       | expr :: rest ->
           eval_cont env expr
             (EvalAppPrimop (primop, env, loc, argument :: arg_values, rest, cont))
@@ -199,7 +203,7 @@ let rec continue : type a r. (a, r) cont -> a -> r eval_result =
         end)
   | PerformArgs (loc, env, effect, arguments, argument_values, cont) -> begin
       match arguments with
-      | [] -> Suspended (effect, argument :: argument_values, cont)
+      | [] -> Suspended (effect, List.rev (argument :: argument_values), cont)
       | expr :: rest ->
           eval_cont env expr
             (PerformArgs
@@ -210,6 +214,13 @@ let rec continue : type a r. (a, r) cont -> a -> r eval_result =
       | Completed result -> continue bc_cont result
       | Suspended (effect, arguments, partial_cont) ->
           Suspended (effect, arguments, Compose (partial_cont, bc_cont))
+    end
+  | EvalListLiteral (env, values, exprs, cont) -> begin
+      match exprs with
+      | [] -> continue cont (List (List.rev (argument :: values)))
+      | expr :: rest ->
+          eval_cont env expr
+            (EvalListLiteral (env, argument :: values, rest, cont))
     end
 
 and eval_cont : type r. env -> expr -> (value, r) cont -> r eval_result =
@@ -228,6 +239,12 @@ and eval_cont : type r. env -> expr -> (value, r) cont -> r eval_result =
       eval_cont env function_expr (EvalAppFun (loc, env, argument_exprs, cont))
   | Lambda (loc, names, body) -> continue cont (Closure (lazy env, names, body))
   | Literal (loc, literal) -> continue cont (eval_literal literal)
+  | ListLiteral (loc, elements) -> begin
+      match elements with
+      | [] -> continue cont (List [])
+      | expr :: exprs ->
+          eval_cont env expr (EvalListLiteral (env, [], exprs, cont))
+    end
   | Binop (loc, left, op, right) -> eval_binop env loc left op right cont
   | If (loc, condition, then_branch, else_branch) ->
       eval_cont env condition

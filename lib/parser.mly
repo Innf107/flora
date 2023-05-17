@@ -18,6 +18,8 @@ let loc (start_pos, end_pos) =
 %token RPAREN ")"
 %token LBRACE "{"
 %token RBRACE "}"
+%token LBRACKET "["
+%token RBRACKET "]"
 %token LET "let"
 %token IF "if"
 %token THEN "then"
@@ -121,6 +123,7 @@ expr_leaf:
 | "handle" expr "{" sep_trailing(";", handle_branch) "}" { Handle(loc $loc, $2, $4) }
 | "(" expr ")" { $2 }
 | "{" sep_trailing(";", statement) "}" { Sequence($2) }
+| "[" sep_trailing(",", expr) "]" { ListLiteral(loc $loc, $2) }
 
 handle_branch:
 | IDENT "(" sep_trailing(",", IDENT) ")" IDENT "->" expr { ($1, $3, $5, $7) }

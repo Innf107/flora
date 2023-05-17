@@ -57,6 +57,9 @@ type ('a, 'r) cont =
       loc * env * name * expr list * value list * (value, 'r) cont
       -> (value, 'r) cont
   | Compose : ('a, 'b) cont * ('b, 'c) cont -> ('a, 'c) cont
+  | EvalListLiteral :
+      env * value list * expr list * (value, 'r) cont
+      -> (value, 'r) cont
 
 type 'r eval_result =
   | Completed of 'r

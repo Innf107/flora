@@ -29,7 +29,7 @@ type read_state = { in_channel : in_channel }
 type read_env = int
 
 type read_value =
-  (* We might not have read the entire environment yet so this needs to be 'int' *)
+  (* We might not have read the entire environment yet so this needs to be 'read_env' *)
   | Closure of read_env * name list * expr
   (* The rest is just boilerplate copied from the definition of Syntax.value *)
   | Nil
@@ -66,6 +66,9 @@ and read_cont =
       loc * read_env * name * expr list * read_value list * read_cont
       -> read_cont
   | Compose : read_cont * read_cont -> read_cont
+  | EvalListLiteral :
+      read_env * read_value list * expr list * read_cont
+      -> read_cont
 
 type read_env_contents = { variables : read_value NameMap.t }
 
@@ -315,6 +318,10 @@ let rec write_expr state = function
           write_string state cont_name;
           write_expr state expr)
         state handlers
+  | ListLiteral (loc, elements) ->
+      write_byte state 9;
+      write_loc state loc;
+      write_list write_expr state elements
 
 and write_statement state = function
   | RunExpr expr ->
@@ -386,6 +393,10 @@ let rec read_expr state =
           state
       in
       Handle (loc, scrutinee, handlers)
+  | 9 ->
+      let loc = read_loc state in
+      let elements = read_list read_expr state in
+      ListLiteral (loc, elements)
   | tag -> raise (DeserializationError (InvalidTag { ty = "expr"; tag }))
 
 and read_statement state =
@@ -556,6 +567,11 @@ and write_cont : type a b. write_state -> (a, b) Eval.cont -> unit =
       write_byte state 13;
       write_cont state cont1;
       write_cont state cont2
+  | EvalListLiteral (env, values, exprs, cont) ->
+      write_byte state 14;
+      write_list write_value state values;
+      write_list write_expr state exprs;
+      write_cont state cont
 
 and read_cont : read_state -> read_cont =
  fun state ->
@@ -666,6 +682,12 @@ and read_cont : read_state -> read_cont =
       let cont1 = read_cont state in
       let cont2 = read_cont state in
       Compose (cont1, cont2)
+  | 14 ->
+      let env = read_env state in
+      let values = read_list read_value state in
+      let exprs = read_list read_expr state in
+      let cont = read_cont state in
+      EvalListLiteral (env, values, exprs, cont)
   | tag -> raise (DeserializationError (InvalidTag { ty = "cont"; tag }))
 
 let write_environment_delta state previous { Syntax.variables } =
@@ -928,6 +950,11 @@ let deserialize : type a. a deserialization_target -> in_channel -> a =
                     let cont2 = fill_value_env_cont cont2 in
                     Compose (cont1, cont2)
               end
+          | EvalListLiteral (env, values, exprs, cont) ->
+              let env = fill_env env in
+              let values = List.map fill_value values in
+              let cont = fill_value_cont cont in
+              EvalListLiteral (env, values, exprs, cont)
         and fill_value_env_cont : read_cont -> (env * value, r) Eval.cont =
           function
           | Done -> begin

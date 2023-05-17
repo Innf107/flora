@@ -113,6 +113,8 @@ let rec lex state =
       | ')' -> advance_emit RPAREN
       | '{' -> advance_emit LBRACE
       | '}' -> advance_emit RBRACE
+      | '[' -> advance_emit LBRACKET
+      | ']' -> advance_emit RBRACKET
       | '+' -> advance_emit PLUS
       | '-' ->
           advance state;
