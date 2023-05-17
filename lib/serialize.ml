@@ -950,7 +950,7 @@ let serialize target out_channel =
 
   let rec write_environments () =
     match Queue.take_opt state.environments_to_be_written with
-    | None -> ()
+    | None -> write_bool state false
     | Some (_, previous, delta) ->
         write_bool state true;
         write_environment_delta state previous delta;
@@ -962,12 +962,10 @@ let serialize target out_channel =
   match target with
   | SerializeEnv _ ->
       write_environments ();
-      write_bool state false;
       write_int state main_index
   | SerializeCont cont ->
       write_cont state cont;
       write_environments ();
-      write_bool state false
 
 type 'r cont_result =
   | Value : value cont_result

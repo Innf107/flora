@@ -88,7 +88,9 @@ include (
 
 type primop = DynamicVar
 
-let parse_primop = function "dynamicVar" -> Some DynamicVar | _ -> None
+let parse_primop = function
+  | "dynamicVar" -> Some DynamicVar
+  | _ -> None
 
 module RecordMap = Map.Make (String)
 
@@ -122,20 +124,23 @@ let empty_env =
   }
 
 let bind_variables bindings env =
-  {
-    contents =
-      {
-        env.contents with
-        variables = NameMap.add_seq bindings env.contents.variables;
-      };
-    delta = { variables = NameMap.of_seq bindings };
-    previous = Some env;
-  }
+  if Seq.is_empty bindings then env
+  else
+    {
+      contents =
+        {
+          env.contents with
+          variables = NameMap.add_seq bindings env.contents.variables;
+        };
+      delta = { variables = NameMap.of_seq bindings };
+      previous = Some env;
+    }
 
 let bind_variable name value env =
   bind_variables (List.to_seq [ (name, value) ]) env
 
-let pretty_primop = function DynamicVar -> "dynamicVar"
+let pretty_primop = function
+  | DynamicVar -> "dynamicVar"
 
 let pretty_literal = function
   | NumberLit f -> string_of_float f

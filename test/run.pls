@@ -23,10 +23,12 @@ let errors = ref 0
 
 let files = lines(!find (scriptLocal("cases")) "-name" "*.flora")
 
+!dune "build"
+
 for(files, \file -> {
     let expectation = !grep "-Po" "(?<=-- EXPECT: ).+" file
 
-    let result = !dune "exec" "flora" "--" file
+    let result = !_build/default/bin/main.exe file
 
     if result == expectation then {
         !echo "-e" ("\x1b[32m[" ~ file ~ "]: passed\x1b[0m")
