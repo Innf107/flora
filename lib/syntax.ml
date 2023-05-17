@@ -36,21 +36,42 @@ type binop =
   ]
 
 type statement =
-  | Let of loc * name * expr
-  | LetFun of loc * name * name list * expr
+  | Let of loc * pattern * expr
+  | LetFun of loc * name * pattern list * expr
   | RunExpr of expr
 
 and expr =
   | Var of loc * name
   | App of loc * expr * expr list
-  | Lambda of loc * name list * expr
+  | Lambda of loc * pattern list * expr
   | Literal of loc * literal
   | ListLiteral of loc * expr list
+  | RecordLiteral of loc * (name * expr) list
   | Binop of loc * expr * binop * expr
   | If of loc * expr * expr * expr
   | Sequence of statement list
   | Perform of loc * name * expr list
-  | Handle of loc * expr * (name * name list * name * expr) list
+  | Handle of loc * expr * (name * pattern list * name * expr) list
+  | Match of loc * expr * (pattern * expr) list
+
+and pattern =
+  | VarPat of loc * name
+  | LiteralPat of loc * literal
+  | ListPat of loc * pattern list
+  | ConsPat of loc * pattern * pattern
+  | RecordPat of loc * (name * pattern) list
+  | OrPat of loc * pattern * pattern
+  | AsPat of loc * pattern * name
+
+let pattern_loc = function
+  | VarPat (loc, _)
+  | LiteralPat (loc, _)
+  | ListPat (loc, _)
+  | ConsPat (loc, _, _)
+  | RecordPat (loc, _)
+  | OrPat (loc, _, _)
+  | AsPat (loc, _, _) ->
+      loc
 
 (* See Note [Continuation Representation]
 
@@ -69,14 +90,17 @@ type primop = DynamicVar
 
 let parse_primop = function "dynamicVar" -> Some DynamicVar | _ -> None
 
+module RecordMap = Map.Make (String)
+
 type value =
   | Nil
   | Number of float
   | String of string
   | Bool of bool
   | List of value list
+  | Record of value RecordMap.t
   (* The environment needs to be lazy to allow recursive definitions *)
-  | Closure of env Lazy.t * name list * expr
+  | Closure of env Lazy.t * pattern list * expr
   | Primop of primop
   (* See Note [Continuation Representation]*)
   | Continuation of continuation
@@ -140,10 +164,16 @@ let rec pretty_value = function
   | String str -> "\"" ^ str ^ "\""
   | Bool bool -> string_of_bool bool
   | List list -> "[" ^ String.concat ", " (List.map pretty_value list) ^ "]"
+  | Record values ->
+      "{"
+      ^ String.concat ", "
+          (List.map
+             (fun (key, value) -> key ^ " = " ^ pretty_value value)
+             (RecordMap.bindings values))
+      ^ "}"
   | Nil -> "nil"
-  | Closure (_, params, _) ->
-      "<[closure](" ^ String.concat ", " params ^ ") -> ...>"
-  | Primop _ -> "<primitive closure>"
+  | Closure (_, params, _) -> "<closure ...>"
+  | Primop _ -> "<primitive closure ...>"
   | Continuation _ -> "<continuation ...>"
 
 (* Note [Environment Provenance]

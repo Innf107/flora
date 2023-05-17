@@ -8,6 +8,8 @@ exception Panic of string * string
 (* Should be used as `panic __LOC__ message`*)
 val panic : string -> string -> 'a
 
-val map_cps : ('a -> ('b -> 'r) -> 'r) -> 'a list -> ('b list -> 'r) -> 'r
+val sequence_option : 'a option list -> 'a list option
+val traverse_option : ('a -> 'b option) -> 'a list -> 'b list option
 
-val bind_cps : (('a -> 'r) -> 'r) -> ('a -> 'r) -> 'r
+val compose : ('a -> 'a) list -> 'a -> 'a
+val compose_seq : ('a -> 'a) Seq.t -> 'a -> 'a

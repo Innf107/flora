@@ -30,7 +30,7 @@ type read_env = int
 
 type read_value =
   (* We might not have read the entire environment yet so this needs to be 'read_env' *)
-  | Closure of read_env * name list * expr
+  | Closure of read_env * pattern list * expr
   (* The rest is just boilerplate copied from the definition of Syntax.value *)
   | Nil
   | Number of float
@@ -40,12 +40,13 @@ type read_value =
   | Primop of primop
   (* TODO: Continuations should be shared similar to environments *)
   | Continuation of read_cont
+  | Record of read_value RecordMap.t
 
 and read_cont =
   | Done : read_cont
   | EvalAppFun : loc * read_env * expr list * read_cont -> read_cont
   | EvalAppArgs :
-      (read_env * name list * expr)
+      (read_env * pattern list * expr)
       * read_env
       * read_value list
       * expr list
@@ -58,7 +59,7 @@ and read_cont =
   | WithEnv : read_env * read_cont -> read_cont
   | IgnoreEnv : read_cont -> read_cont
   | EvalSequence : read_env * statement list * read_cont -> read_cont
-  | BindValue : read_env * name * statement list * read_cont -> read_cont
+  | BindValue : read_env * pattern * statement list * read_cont -> read_cont
   | StrictBinOp1 : loc * read_env * strict_binop * expr * read_cont -> read_cont
   | StrictBinOp2 : loc * read_value * strict_binop * read_cont -> read_cont
   | LazyBinOp : loc * read_env * lazy_binop * expr * read_cont -> read_cont
@@ -69,6 +70,10 @@ and read_cont =
   | EvalListLiteral :
       read_env * read_value list * expr list * read_cont
       -> read_cont
+  | EvalRecordLiteral :
+      read_env * name * read_value RecordMap.t * (name * expr) list * read_cont
+      -> read_cont
+  | EvalMatch : loc * read_env * (pattern * expr) list * read_cont -> read_cont
 
 type read_env_contents = { variables : read_value NameMap.t }
 
@@ -269,6 +274,85 @@ let read_binop state : binop =
   | 13 -> `And
   | tag -> raise (DeserializationError (InvalidTag { ty = "binop"; tag }))
 
+let rec write_pattern state = function
+  | VarPat (loc, name) ->
+      write_byte state 0;
+      write_loc state loc;
+      write_string state name
+  | LiteralPat (loc, literal) ->
+      write_byte state 1;
+      write_loc state loc;
+      write_literal state literal
+  | ListPat (loc, patterns) ->
+      write_byte state 2;
+      write_loc state loc;
+      write_list write_pattern state patterns
+  | ConsPat (loc, head_pat, tail_pat) ->
+      write_byte state 3;
+      write_loc state loc;
+      write_pattern state head_pat;
+      write_pattern state tail_pat
+  | RecordPat (loc, entries) ->
+      write_byte state 4;
+      write_loc state loc;
+      write_list
+        (fun state (name, pattern) ->
+          write_string state name;
+          write_pattern state pattern)
+        state entries
+  | OrPat (loc, left, right) ->
+      write_byte state 5;
+      write_loc state loc;
+      write_pattern state left;
+      write_pattern state right
+  | AsPat (loc, pattern, name) ->
+      write_byte state 6;
+      write_loc state loc;
+      write_pattern state pattern;
+      write_string state name
+
+let rec read_pattern state =
+  match read_byte state with
+  | 0 ->
+      let loc = read_loc state in
+      let name = read_string state in
+      VarPat (loc, name)
+  | 1 ->
+      let loc = read_loc state in
+      let literal = read_literal state in
+      LiteralPat (loc, literal)
+  | 2 ->
+      let loc = read_loc state in
+      let patterns = read_list read_pattern state in
+      ListPat (loc, patterns)
+  | 3 ->
+      let loc = read_loc state in
+      let head_pat = read_pattern state in
+      let tail_pat = read_pattern state in
+      ConsPat (loc, head_pat, tail_pat)
+  | 4 ->
+      let loc = read_loc state in
+      let entries =
+        read_list
+          (fun state ->
+            let name = read_string state in
+            let pattern = read_pattern state in
+            (name, pattern))
+          state
+      in
+      RecordPat (loc, entries)
+  | 5 ->
+      let loc = read_loc state in
+      let left = read_pattern state in
+      let right = read_pattern state in
+      OrPat (loc, left, right)
+  | 6 ->
+      let loc = read_loc state in
+      let pattern = read_pattern state in
+      let name = read_string state in
+      AsPat (loc, pattern, name)
+  | tag -> raise (DeserializationError (InvalidTag { ty = "pattern"; tag }))
+
 let rec write_expr state = function
   | Syntax.Var (loc, name) ->
       write_byte state 0;
@@ -282,7 +366,7 @@ let rec write_expr state = function
   | Lambda (loc, params, body) ->
       write_byte state 2;
       write_loc state loc;
-      write_list write_string state params;
+      write_list write_pattern state params;
       write_expr state body
   | Literal (loc, literal) ->
       write_byte state 3;
@@ -314,7 +398,7 @@ let rec write_expr state = function
       write_list
         (fun state (name, params, cont_name, expr) ->
           write_string state name;
-          write_list write_string state params;
+          write_list write_pattern state params;
           write_string state cont_name;
           write_expr state expr)
         state handlers
@@ -322,6 +406,23 @@ let rec write_expr state = function
       write_byte state 9;
       write_loc state loc;
       write_list write_expr state elements
+  | RecordLiteral (loc, elements) ->
+      write_byte state 10;
+      write_loc state loc;
+      write_list
+        (fun state (name, expr) ->
+          write_string state name;
+          write_expr state expr)
+        state elements
+  | Match (loc, scrutinee, branches) ->
+      write_byte state 11;
+      write_loc state loc;
+      write_expr state scrutinee;
+      write_list
+        (fun state (pattern, body) ->
+          write_pattern state pattern;
+          write_expr state body)
+        state branches
 
 and write_statement state = function
   | RunExpr expr ->
@@ -330,13 +431,13 @@ and write_statement state = function
   | Let (loc, name, expr) ->
       write_byte state 1;
       write_loc state loc;
-      write_string state name;
+      write_pattern state name;
       write_expr state expr
   | LetFun (loc, name, params, body) ->
       write_byte state 2;
       write_loc state loc;
       write_string state name;
-      write_list write_string state params;
+      write_list write_pattern state params;
       write_expr state body
 
 let rec read_expr state =
@@ -352,7 +453,7 @@ let rec read_expr state =
       App (loc, expr, args)
   | 2 ->
       let loc = read_loc state in
-      let params = read_list read_string state in
+      let params = read_list read_pattern state in
       let body = read_expr state in
       Lambda (loc, params, body)
   | 3 ->
@@ -386,7 +487,7 @@ let rec read_expr state =
         read_list
           (fun state ->
             let name = read_string state in
-            let params = read_list read_string state in
+            let params = read_list read_pattern state in
             let cont_name = read_string state in
             let expr = read_expr state in
             (name, params, cont_name, expr))
@@ -397,6 +498,29 @@ let rec read_expr state =
       let loc = read_loc state in
       let elements = read_list read_expr state in
       ListLiteral (loc, elements)
+  | 10 ->
+      let loc = read_loc state in
+      let elements =
+        read_list
+          (fun state ->
+            let name = read_string state in
+            let expr = read_expr state in
+            (name, expr))
+          state
+      in
+      RecordLiteral (loc, elements)
+  | 11 ->
+      let loc = read_loc state in
+      let scrutinee = read_expr state in
+      let branches =
+        read_list
+          (fun state ->
+            let pattern = read_pattern state in
+            let expr = read_expr state in
+            (pattern, expr))
+          state
+      in
+      Match (loc, scrutinee, branches)
   | tag -> raise (DeserializationError (InvalidTag { ty = "expr"; tag }))
 
 and read_statement state =
@@ -406,18 +530,19 @@ and read_statement state =
       RunExpr expr
   | 1 ->
       let loc = read_loc state in
-      let name = read_string state in
+      let pattern = read_pattern state in
       let expr = read_expr state in
-      Let (loc, name, expr)
+      Let (loc, pattern, expr)
   | 2 ->
       let loc = read_loc state in
       let name = read_string state in
-      let params = read_list read_string state in
+      let params = read_list read_pattern state in
       let body = read_expr state in
       LetFun (loc, name, params, body)
   | tag -> raise (DeserializationError (InvalidTag { ty = "statement"; tag }))
 
-let write_primop state = function DynamicVar -> write_byte state 0
+let write_primop state = function
+  | DynamicVar -> write_byte state 0
 
 and read_primop state =
   match read_byte state with
@@ -441,7 +566,7 @@ let rec write_value state = function
   | Closure (env, parameters, body) ->
       write_byte state 5;
       write_env state (Lazy.force_val env);
-      write_list write_string state parameters;
+      write_list write_pattern state parameters;
       write_expr state body
   | Primop primop ->
       write_byte state 6;
@@ -450,6 +575,14 @@ let rec write_value state = function
       write_byte state 7;
       let cont : (value, value) Eval.cont = Obj.magic cont in
       write_cont state cont
+  | Record values ->
+      write_byte state 8;
+      write_list
+        (fun state (name, value) ->
+          write_string state name;
+          write_value state value)
+        state
+        (List.of_seq (RecordMap.to_seq values))
 
 and read_value state : read_value =
   let tag = read_byte state in
@@ -469,7 +602,7 @@ and read_value state : read_value =
       List values
   | 5 ->
       let env = read_env state in
-      let params = read_list read_string state in
+      let params = read_list read_pattern state in
       let body = read_expr state in
       Closure (env, params, body)
   | 6 ->
@@ -478,6 +611,16 @@ and read_value state : read_value =
   | 7 ->
       let cont = read_cont state in
       Continuation cont
+  | 8 ->
+      let values =
+        read_list
+          (fun state ->
+            let name = read_string state in
+            let value = read_value state in
+            (name, value))
+          state
+      in
+      Record (RecordMap.of_seq (List.to_seq values))
   | tag -> raise (DeserializationError (InvalidTag { ty = "value"; tag }))
 
 and write_cont : type a b. write_state -> (a, b) Eval.cont -> unit =
@@ -497,7 +640,7 @@ and write_cont : type a b. write_state -> (a, b) Eval.cont -> unit =
         cont ) ->
       write_byte state 2;
       write_env state closure_env;
-      write_list write_string state closure_params;
+      write_list write_pattern state closure_params;
       write_expr state closure_body;
       write_env state env;
       write_list write_value state arguments;
@@ -529,10 +672,10 @@ and write_cont : type a b. write_state -> (a, b) Eval.cont -> unit =
       write_env state env;
       write_list write_statement state statements;
       write_cont state cont
-  | BindValue (env, name, rest, cont) ->
+  | BindValue (env, pattern, rest, cont) ->
       write_byte state 8;
       write_env state env;
-      write_string state name;
+      write_pattern state pattern;
       write_list write_statement state rest;
       write_cont state cont
   | StrictBinOp1 (loc, env, strict_binop, expr, cont) ->
@@ -572,6 +715,32 @@ and write_cont : type a b. write_state -> (a, b) Eval.cont -> unit =
       write_list write_value state values;
       write_list write_expr state exprs;
       write_cont state cont
+  | EvalRecordLiteral (env, name, built_map, bindings, cont) ->
+      write_byte state 15;
+      write_env state env;
+      write_string state name;
+      write_list
+        (fun state (name, value) ->
+          write_string state name;
+          write_value state value)
+        state
+        (List.of_seq (RecordMap.to_seq built_map));
+      write_list
+        (fun state (name, expr) ->
+          write_string state name;
+          write_expr state expr)
+        state bindings;
+      write_cont state cont
+  | EvalMatch (loc, env, branches, cont) ->
+      write_byte state 16;
+      write_loc state loc;
+      write_env state env;
+      write_list
+        (fun state (pattern, expr) ->
+          write_pattern state pattern;
+          write_expr state expr)
+        state branches;
+      write_cont state cont
 
 and read_cont : read_state -> read_cont =
  fun state ->
@@ -585,7 +754,7 @@ and read_cont : read_state -> read_cont =
       EvalAppFun (loc, env, arguments, cont)
   | 2 ->
       let closure_env = read_env state in
-      let closure_params = read_list read_string state in
+      let closure_params = read_list read_pattern state in
       let closure_body = read_expr state in
       let env = read_env state in
       let arguments = read_list read_value state in
@@ -626,10 +795,10 @@ and read_cont : read_state -> read_cont =
       EvalSequence (env, statements, cont)
   | 8 ->
       let env = read_env state in
-      let name = read_string state in
+      let pattern = read_pattern state in
       let rest = read_list read_statement state in
       let cont = read_cont state in
-      BindValue (env, name, rest, cont)
+      BindValue (env, pattern, rest, cont)
   | 9 ->
       let loc = read_loc state in
       let env = read_env state in
@@ -688,6 +857,42 @@ and read_cont : read_state -> read_cont =
       let exprs = read_list read_expr state in
       let cont = read_cont state in
       EvalListLiteral (env, values, exprs, cont)
+  | 15 ->
+      let env = read_env state in
+      let name = read_string state in
+      let built_map =
+        RecordMap.of_seq
+          (List.to_seq
+             (read_list
+                (fun state ->
+                  let name = read_string state in
+                  let value = read_value state in
+                  (name, value))
+                state))
+      in
+      let bindings =
+        read_list
+          (fun state ->
+            let name = read_string state in
+            let expr = read_expr state in
+            (name, expr))
+          state
+      in
+      let cont = read_cont state in
+      EvalRecordLiteral (env, name, built_map, bindings, cont)
+  | 16 ->
+      let loc = read_loc state in
+      let env = read_env state in
+      let branches =
+        read_list
+          (fun state ->
+            let pattern = read_pattern state in
+            let expr = read_expr state in
+            (pattern, expr))
+          state
+      in
+      let cont = read_cont state in
+      EvalMatch (loc, env, branches, cont)
   | tag -> raise (DeserializationError (InvalidTag { ty = "cont"; tag }))
 
 let write_environment_delta state previous { Syntax.variables } =
@@ -845,6 +1050,7 @@ let deserialize : type a. a deserialization_target -> in_channel -> a =
     | String str -> Syntax.String str
     | Bool bool -> Syntax.Bool bool
     | List values -> Syntax.List (List.map fill_value values)
+    | Record values -> Syntax.Record (RecordMap.map fill_value values)
     | Closure (index, params, expr) ->
         let env = fill_env index in
         Closure (lazy env, params, expr)
@@ -955,6 +1161,15 @@ let deserialize : type a. a deserialization_target -> in_channel -> a =
               let values = List.map fill_value values in
               let cont = fill_value_cont cont in
               EvalListLiteral (env, values, exprs, cont)
+          | EvalRecordLiteral (env, name, built_map, bindings, cont) ->
+              let env = fill_env env in
+              let built_map = NameMap.map fill_value built_map in
+              let cont = fill_value_cont cont in
+              EvalRecordLiteral (env, name, built_map, bindings, cont)
+          | EvalMatch (loc, env, branches, cont) ->
+              let env = fill_env env in
+              let cont = fill_value_cont cont in
+              EvalMatch (loc, env, branches, cont)
         and fill_value_env_cont : read_cont -> (env * value, r) Eval.cont =
           function
           | Done -> begin

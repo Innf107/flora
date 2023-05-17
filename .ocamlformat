@@ -2,3 +2,4 @@ profile = default
 version = 0.25.1
 exp-grouping = preserve
 type-decl = sparse
+break-cases = all

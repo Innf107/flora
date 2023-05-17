@@ -23,6 +23,7 @@ type eval_error =
       expected : string;
       actual : value list;
     }
+  | NonexhaustivePatterns of { scrutinee : value }
 
 exception EvalError of loc * eval_error
 
@@ -30,7 +31,11 @@ type ('a, 'r) cont =
   | Done : ('r, 'r) cont
   | EvalAppFun : loc * env * expr list * (value, 'r) cont -> (value, 'r) cont
   | EvalAppArgs :
-      (env * name list * expr) * env * value list * expr list * (value, 'r) cont
+      (env * pattern list * expr)
+      * env
+      * value list
+      * expr list
+      * (value, 'r) cont
       -> (value, 'r) cont
   | EvalAppPrimop :
       primop * env * loc * value list * expr list * (value, 'r) cont
@@ -42,7 +47,7 @@ type ('a, 'r) cont =
       env * statement list * (env * value, 'r) cont
       -> ('a, 'r) cont
   | BindValue :
-      env * name * statement list * (env * value, 'r) cont
+      env * pattern * statement list * (env * value, 'r) cont
       -> (value, 'r) cont
   | StrictBinOp1 :
       loc * env * strict_binop * expr * (value, 'r) cont
@@ -59,6 +64,12 @@ type ('a, 'r) cont =
   | Compose : ('a, 'b) cont * ('b, 'c) cont -> ('a, 'c) cont
   | EvalListLiteral :
       env * value list * expr list * (value, 'r) cont
+      -> (value, 'r) cont
+  | EvalRecordLiteral :
+      env * name * value RecordMap.t * (name * expr) list * (value, 'r) cont
+      -> (value, 'r) cont
+  | EvalMatch :
+      loc * env * (pattern * expr) list * (value, 'r) cont
       -> (value, 'r) cont
 
 type 'r eval_result =

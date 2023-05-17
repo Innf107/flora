@@ -34,6 +34,11 @@ let rec reify_value : Syntax.value -> reified_value Js.t = function
          val value = Js.array (Array.map reify_value (Array.of_list items))
        end
         :> reified_value Js.t)
+  | Record items ->
+      (object%js 
+        val kind = Js.string "Record"
+        val value = items
+        end :> reified_value Js.t)
   | Closure (env_lazy, params, expr) ->
       (object%js
          val kind = Js.string "Closure"
@@ -94,7 +99,7 @@ let rec reflect_value : reified_value Js.t -> Syntax.value =
       let reified :
           < kind : Js.js_string Js.t Js.readonly_prop
           ; value :
-              (Syntax.env lazy_t * string list * Syntax.expr) Js.readonly_prop >
+              (Syntax.env lazy_t * Syntax.pattern list * Syntax.expr) Js.readonly_prop >
           Js.t =
         Js.Unsafe.coerce reified
       in

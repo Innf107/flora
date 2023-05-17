@@ -61,6 +61,11 @@ let rec value = function
   | String x -> string x
   | Bool x -> bool x
   | List items -> list value items
+  | Record bindings ->
+      obj (fun obj ->
+          List.iter
+            (fun (key, entry_value) -> entry obj key (value entry_value))
+            (Syntax.RecordMap.bindings bindings))
   | Closure _ -> raise (Error (Unsupported `Closure))
   | Primop _ -> raise (Error (Unsupported `Closure))
   | Continuation _ -> raise (Error (Unsupported `Continuation))

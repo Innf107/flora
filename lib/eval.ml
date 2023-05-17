@@ -24,6 +24,7 @@ type eval_error =
       expected : string;
       actual : value list;
     }
+  | NonexhaustivePatterns of { scrutinee : value }
 
 exception EvalError of loc * eval_error
 
@@ -48,13 +49,19 @@ let rec equal_value left_value right_value =
   | Bool x, Bool y -> Bool.equal x y
   | List xs, List ys ->
       List.compare_lengths xs ys = 0 && List.for_all2 equal_value xs ys
+  | Record fields1, Record fields2 ->
+      RecordMap.equal equal_value fields1 fields2
   | _ -> false
 
 type ('a, 'r) cont =
   | Done : ('r, 'r) cont
   | EvalAppFun : loc * env * expr list * (value, 'r) cont -> (value, 'r) cont
   | EvalAppArgs :
-      (env * name list * expr) * env * value list * expr list * (value, 'r) cont
+      (env * pattern list * expr)
+      * env
+      * value list
+      * expr list
+      * (value, 'r) cont
       -> (value, 'r) cont
   | EvalAppPrimop :
       primop * env * loc * value list * expr list * (value, 'r) cont
@@ -66,7 +73,7 @@ type ('a, 'r) cont =
       env * statement list * (env * value, 'r) cont
       -> ('a, 'r) cont
   | BindValue :
-      env * name * statement list * (env * value, 'r) cont
+      env * pattern * statement list * (env * value, 'r) cont
       -> (value, 'r) cont
   | StrictBinOp1 :
       loc * env * strict_binop * expr * (value, 'r) cont
@@ -84,10 +91,99 @@ type ('a, 'r) cont =
   | EvalListLiteral :
       env * value list * expr list * (value, 'r) cont
       -> (value, 'r) cont
+  | EvalRecordLiteral :
+      env * name * value RecordMap.t * (name * expr) list * (value, 'r) cont
+      -> (value, 'r) cont
+  | EvalMatch :
+      loc * env * (pattern * expr) list * (value, 'r) cont
+      -> (value, 'r) cont
 
 type 'r eval_result =
   | Completed of 'r
   | Suspended of name * value list * (value, 'r) cont
+
+let rec match_pattern : pattern -> value -> (env -> env) option =
+  let ( let* ) = Option.bind in
+  function
+  | LiteralPat (loc, NilLit) -> begin
+      function
+      | Nil -> Some Fun.id
+      | _ -> None
+    end
+  | LiteralPat (loc, NumberLit float) -> begin
+      function
+      | Number float2 when Float.equal float float2 -> Some Fun.id
+      | _ -> None
+    end
+  | LiteralPat (loc, StringLit str) -> begin
+      function
+      | String str2 when String.equal str str2 -> Some Fun.id
+      | _ -> None
+    end
+  | LiteralPat (loc, BoolLit bool) -> begin
+      function
+      | Bool bool2 when Bool.equal bool bool2 -> Some Fun.id
+      | _ -> None
+    end
+  | VarPat (loc, name) -> fun value -> Some (bind_variable name value)
+  | ListPat (loc, patterns) -> begin
+      function
+      | List values when List.compare_lengths patterns values = 0 ->
+          Option.map Util.compose
+            (Util.traverse_option
+               (fun (pattern, value) -> match_pattern pattern value)
+               (List.combine patterns values))
+      | _ -> None
+    end
+  | ConsPat (loc, head_pat, tail_pat) -> begin
+      function
+      | List (head :: tail) ->
+          let* head_trans = match_pattern head_pat head in
+          let* tail_trans = match_pattern tail_pat (List tail) in
+          Some (fun env -> tail_trans (head_trans env))
+      | _ -> None
+    end
+  | RecordPat (loc, entries) -> begin
+      function
+      | Record record ->
+          let find_entry (name, pattern) =
+            let* value = RecordMap.find_opt name record in
+            match_pattern pattern value
+          in
+          Option.map Util.compose (Util.traverse_option find_entry entries)
+      | _ -> None
+    end
+  | OrPat (loc, left, right) ->
+      fun value ->
+        begin
+          match match_pattern left value with
+          | Some env_trans -> Some env_trans
+          | None -> match_pattern right value
+        end
+  | AsPat (loc, pattern, name) ->
+      fun value ->
+        begin
+          match match_pattern pattern value with
+          | None -> None
+          | Some env_trans ->
+              Some (fun env -> bind_variable name value (env_trans env))
+        end
+
+let match_pattern_exn : pattern -> value -> env -> env =
+ fun pattern value ->
+  match match_pattern pattern value with
+  | Some trans -> trans
+  | None ->
+      raise
+        (EvalError
+           (pattern_loc pattern, NonexhaustivePatterns { scrutinee = value }))
+
+let match_patterns_exn : (pattern * value) Seq.t -> env -> env =
+ fun patterns ->
+  let transformers =
+    Seq.map (fun (pattern, value) -> match_pattern_exn pattern value) patterns
+  in
+  Util.compose_seq transformers
 
 let rec continue : type a r. (a, r) cont -> a -> r eval_result =
  fun cont argument ->
@@ -147,7 +243,7 @@ let rec continue : type a r. (a, r) cont -> a -> r eval_result =
       match exprs with
       | [] ->
           let updated_env =
-            bind_variables
+            match_patterns_exn
               (Seq.zip
                  (List.to_seq closure_names)
                  (List.to_seq (List.rev (argument :: arg_values))))
@@ -178,8 +274,8 @@ let rec continue : type a r. (a, r) cont -> a -> r eval_result =
       let env, value = argument in
       continue cont value
   | EvalSequence (env, statements, cont) -> eval_statements env statements cont
-  | BindValue (env, name, statements, cont) ->
-      let updated_env = bind_variable name argument env in
+  | BindValue (env, pattern, statements, cont) ->
+      let updated_env = match_pattern_exn pattern argument env in
       eval_statements updated_env statements cont
   | StrictBinOp1 (loc, env, op, right, cont) ->
       eval_cont env right (StrictBinOp2 (loc, argument, op, cont))
@@ -222,6 +318,27 @@ let rec continue : type a r. (a, r) cont -> a -> r eval_result =
           eval_cont env expr
             (EvalListLiteral (env, argument :: values, rest, cont))
     end
+  | EvalRecordLiteral (env, name, built_map, bindings, cont) -> begin
+      let built_map = RecordMap.add name argument built_map in
+      match bindings with
+      | [] -> continue cont (Record built_map)
+      | (name, expr) :: bindings ->
+          eval_cont env expr
+            (EvalRecordLiteral (env, name, built_map, bindings, cont))
+    end
+  | EvalMatch (loc, env, branches, cont) ->
+      let rec go branches =
+        match branches with
+        | [] ->
+            raise
+              (EvalError (loc, NonexhaustivePatterns { scrutinee = argument }))
+        | (pattern, body) :: branches -> begin
+            match match_pattern pattern argument with
+            | None -> go branches
+            | Some env_trans -> eval_cont (env_trans env) body cont
+          end
+      in
+      go branches
 
 and eval_cont : type r. env -> expr -> (value, r) cont -> r eval_result =
  fun env expr cont ->
@@ -244,6 +361,13 @@ and eval_cont : type r. env -> expr -> (value, r) cont -> r eval_result =
       | [] -> continue cont (List [])
       | expr :: exprs ->
           eval_cont env expr (EvalListLiteral (env, [], exprs, cont))
+    end
+  | RecordLiteral (loc, bindings) -> begin
+      match bindings with
+      | [] -> continue cont (Record RecordMap.empty)
+      | (name, expr) :: bindings ->
+          eval_cont env expr
+            (EvalRecordLiteral (env, name, RecordMap.empty, bindings, cont))
     end
   | Binop (loc, left, op, right) -> eval_binop env loc left op right cont
   | If (loc, condition, then_branch, else_branch) ->
@@ -286,20 +410,21 @@ and eval_cont : type r. env -> expr -> (value, r) cont -> r eval_result =
                 in
 
                 let updated_env =
-                  bind_variables
-                    (* TODO: Build a continuation here. Fuck the lack of mutually recursive modules in OCaml
-                       Urrrgggghhh *)
+                  match_patterns_exn
                     (Seq.cons
-                       (cont_name, Continuation (Obj.magic suspended_cont))
+                       ( VarPat (loc, cont_name),
+                         Continuation (Obj.magic suspended_cont) )
                        argument_seq)
                     env
                 in
 
                 eval_cont updated_env body cont
               end
-          | None -> Util.todo __LOC__
+          | None -> Suspended (effect, arguments, Compose (suspended_cont, cont))
         end
     end
+  | Match (loc, scrutinee, branches) ->
+      eval_cont env scrutinee (EvalMatch (loc, env, branches, cont))
 
 and eval_primop :
     type r.

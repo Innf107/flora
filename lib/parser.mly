@@ -29,6 +29,8 @@ let loc (start_pos, end_pos) =
 %token FALSE "false"
 %token PERFORM "perform"
 %token HANDLE "handle"
+%token MATCH "match"
+%token AS "as"
 %token EQUALS "="
 %token SEMI ";"
 %token COMMA ","
@@ -48,6 +50,7 @@ let loc (start_pos, end_pos) =
 %token TILDE "~"
 %token AND "&&"
 %token OR "||"
+%token PIPE "|"
 %token EOF
 
 %start <statement list> main
@@ -116,22 +119,58 @@ expr_leaf:
 | IDENT { Var(loc $loc, $1) }
 | literal { Literal(loc $loc, $1) }
 | expr_leaf "(" sep_trailing(",", expr) ")" { App(loc $loc, $1, $3) }
-| "λ" IDENT "->" expr { Lambda(loc $loc, [$2], $4) }
-| "λ" "(" sep_trailing(",", IDENT) ")" "->" expr { Lambda(loc $loc, $3, $6) }
+| "λ" pattern_leaf "->" expr { Lambda(loc $loc, [$2], $4) }
+| "λ" "(" sep_trailing(",", pattern) ")" "->" expr { Lambda(loc $loc, $3, $6) }
 | "if" expr  "then" expr "else" expr { If(loc $loc, $2, $4, $6) }
 | "perform" IDENT "(" sep_trailing(",", expr) ")" { Perform(loc $loc, $2, $4) }
 | "handle" expr "{" sep_trailing(";", handle_branch) "}" { Handle(loc $loc, $2, $4) }
+| "match" expr "{" sep_trailing(";", match_branch) "}" { Match(loc $loc, $2, $4) }
 | "(" expr ")" { $2 }
-| "{" sep_trailing(";", statement) "}" { Sequence($2) }
+| "{" record_or_sequence "}" { $2 }
 | "[" sep_trailing(",", expr) "]" { ListLiteral(loc $loc, $2) }
 
+record_or_sequence:
+|                                                       { RecordLiteral(loc $loc, []) }
+| IDENT "=" expr                                        { RecordLiteral(loc $loc, [($1, $3)]) }
+| IDENT "=" expr "," sep_trailing(",", record_def)      { RecordLiteral(loc $loc, (($1, $3) :: $5)) } 
+| statement                                             { Sequence([$1])}               
+| statement ";" sep_trailing(";", statement)            { Sequence($1 :: $3) }
+
 handle_branch:
-| IDENT "(" sep_trailing(",", IDENT) ")" IDENT "->" expr { ($1, $3, $5, $7) }
+| IDENT "(" sep_trailing(",", pattern) ")" IDENT "->" expr { ($1, $3, $5, $7) }
+
+record_def:
+| IDENT "=" expr { ($1,  $3) }
+
+match_branch:
+| pattern "->" expr { ($1, $3) }
 
 statement:
-| "let" IDENT "=" expr { Let(loc $loc, $2, $4) }
-| "let" IDENT "(" sep_trailing(",", IDENT) ")" "=" expr { LetFun(loc $loc, $2, $4, $7) }
+| "let" pattern "=" expr { Let(loc $loc, $2, $4) }
+| "let" IDENT "(" sep_trailing(",", pattern) ")" "=" expr { LetFun(loc $loc, $2, $4, $7) }
 | expr { RunExpr($1) }
+
+pattern:
+| pattern1 "|" pattern { OrPat(loc $loc, $1, $3) }
+| pattern1             { $1 }
+
+pattern1:
+| pattern2 ":" pattern1 { ConsPat(loc $loc, $1, $3) }
+| pattern2              { $1 }
+
+pattern2:
+| pattern_leaf "as" IDENT { AsPat(loc $loc, $1, $3) }
+| pattern_leaf            { $1 }
+
+pattern_leaf:
+| IDENT                                         { VarPat(loc $loc, $1) }
+| literal                                       { LiteralPat(loc $loc, $1) }
+| "[" sep_trailing(",", pattern) "]"            { ListPat(loc $loc, $2) }
+| "{" sep_trailing(",", record_pattern) "}"     { RecordPat(loc $loc, $2) }
+| "(" pattern ")"                               { $2 }
+
+record_pattern:
+| IDENT "=" pattern { ($1, $3) }
 
 literal:
 | NUMBER    { NumberLit($1) }

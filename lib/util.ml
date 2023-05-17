@@ -6,13 +6,21 @@ exception Panic of string * string
 
 let panic loc message = raise (Panic (loc, message))
 
-let rec map_cps : 'a 'b 'r. ('a -> ('b -> 'r) -> 'r) -> 'a list -> ('b list -> 'r) -> 'r =
-  fun f list cont -> match list with
-  | [] -> cont []
-  | (x :: xs) -> 
-    f x (fun y -> map_cps f xs (fun list -> cont (y :: list)))
-(* TODO: Check that this is correct *)
+let rec sequence_option = function
+  | [] -> Some []
+  | None :: _ -> None
+  | Some value :: rest ->
+      Option.map (fun r -> value :: r) (sequence_option rest)
 
+let rec traverse_option f = function
+  | [] -> Some []
+  | value :: rest -> (
+      match f value with
+      | None -> None
+      | Some value -> Option.map (fun r -> value :: r) (traverse_option f rest))
 
-let bind_cps : 'a 'r. (('a -> 'r) -> 'r) -> ('a -> 'r) -> 'r =
-  fun f cont -> f cont
+let compose list =
+  List.fold_left (fun rest trans x -> trans (rest x)) Fun.id list
+
+let compose_seq seq =
+  Seq.fold_left (fun rest trans x -> trans (rest x)) Fun.id seq

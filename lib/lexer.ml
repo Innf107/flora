@@ -71,6 +71,8 @@ let ident_of_string = function
   | "false" -> Parser.FALSE
   | "perform" -> Parser.PERFORM
   | "handle" -> Parser.HANDLE
+  | "match" -> Parser.MATCH
+  | "as" -> Parser.AS
   | ident -> Parser.IDENT ident
 
 let is_whitespace char = String.contains " \t\n" char
@@ -178,15 +180,17 @@ let rec lex state =
           begin
             match peek_char state with
             | Some '|' -> advance_emit OR
-            | other -> unexpected other
+            | other ->
+                emit state PIPE;
+                lex state
           end
       | ';' -> advance_emit SEMI
       | ',' -> advance_emit COMMA
       | char -> raise (LexicalError (UnexpectedChar char)))
 
 and lex_line_comment state =
-  match next_char state with 
-  |Some '\n' -> lex state 
+  match next_char state with
+  | Some '\n' -> lex state
   | _ -> lex_line_comment state
 
 and lex_ident accum state =

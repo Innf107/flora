@@ -43,6 +43,8 @@ let pretty = function
       "Incorrect arguments to primitive function " ^ Syntax.pretty_primop primop ^ ".\n"
     ^ "    Expected: " ^ expected ^ "\n"
     ^ "      Actual: (" ^ String.concat ", " (List.map Syntax.pretty_value actual) ^ ")"
+    | NonexhaustivePatterns { scrutinee } ->
+      "Non-exhaustive pattern match does not cover value '" ^ Syntax.pretty_value scrutinee ^ "'"
   end
   | DeserializationError (error) -> begin match error with 
     | Serialize.EOF -> "Error during deserialization: Unexpected end of file"
