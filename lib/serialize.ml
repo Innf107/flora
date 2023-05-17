@@ -1050,8 +1050,8 @@ let deserialize : type a. a deserialization_target -> in_channel -> a =
     | List values -> Syntax.List (List.map fill_value values)
     | Record values -> Syntax.Record (RecordMap.map fill_value values)
     | Closure (index, params, expr) ->
-        let env = fill_env index in
-        Closure (lazy env, params, expr)
+        let env = lazy (fill_env index) in
+        Closure (env, params, expr)
     | Primop name -> Syntax.Primop name
     | Continuation cont -> Syntax.Continuation (Obj.magic cont)
   in
