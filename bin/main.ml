@@ -62,9 +62,9 @@ let rec parse_args options = function
       error_usage "Option '--bind' expects an argument before --string"
   | [ "--bind"; _; "--string" ] ->
       error_usage "Option '--bind' expects two arguments"
-  | "--bind" :: name :: "--file" :: str :: rest ->
+  | "--bind" :: name :: "--file" :: path :: rest ->
       parse_args
-        { options with bound_vars = (name, `File str) :: options.bound_vars }
+        { options with bound_vars = (name, `File path) :: options.bound_vars }
         rest
   | "--bind" :: "--file" :: _ ->
       error_usage "Option '--bind' expects an argument before --file"

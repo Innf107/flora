@@ -124,6 +124,7 @@ let empty_env =
   }
 
 let bind_variables bindings env =
+  let bindings = Seq.memoize bindings in
   if Seq.is_empty bindings then env
   else
     {
