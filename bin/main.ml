@@ -6,7 +6,7 @@ type flora_options = {
   read_env_from_file : string option;
   write_effects_to_file : string option;
   is_continue : [ `Raw of string | `Expr of string | `No ];
-  bound_vars : (string * [ `Raw of string | `Expr of string ]) list;
+  bound_vars : (string * [ `Raw of string | `Expr of string | `File of string ]) list;
 }
 
 let usage =
@@ -20,8 +20,10 @@ let usage =
                                   without needing delimiters
       --write-env FILE            Write the final evaluation environment to FILE
       --read-env FILE             Read the initial evaluation environment from FILE
-      --bind NAME [--string] EXPR Extend the input environment by a binding. Passing --string will treat the argument as
-                                  a raw string literal without needing delimiters.
+      --bind NAME EXPR            Extend the input environment by evaluating a binding in the empty environment.
+      --bind NAME --string STRING Extend the input environment by a string, passed as a raw string literal
+      --bind NAME --file FILE     Extend the input environment by a string containing the contents of FILE
+                                  This can in some cases be used to circumvent command line length limits.
 
       --trace CATEGORY            Enable interpreter traces for debugging purposes.
                                     Possible values: |}
@@ -60,11 +62,20 @@ let rec parse_args options = function
       error_usage "Option '--bind' expects an argument before --string"
   | [ "--bind"; _; "--string" ] ->
       error_usage "Option '--bind' expects two arguments"
+  | "--bind" :: name :: "--file" :: str :: rest ->
+      parse_args
+        { options with bound_vars = (name, `File str) :: options.bound_vars }
+        rest
+  | "--bind" :: "--file" :: _ ->
+      error_usage "Option '--bind' expects an argument before --file"
+  | [ "--bind"; _; "--file" ] ->
+      error_usage "Option '--bind' expects two arguments"
   | "--bind" :: name :: expr :: rest ->
       parse_args
         { options with bound_vars = (name, `Expr expr) :: options.bound_vars }
         rest
-  | [ "--bind" ] | [ "--bind"; _ ] ->
+  | [ "--bind" ]
+  | [ "--bind"; _ ] ->
       error_usage "Option '--bind' expects two arguments"
   | "--trace" :: category :: rest ->
       if Trace.try_set_enabled category true then parse_args options rest
@@ -167,10 +178,12 @@ let () =
     match options.read_env_from_file with
     | None -> Syntax.empty_env
     | Some file -> (
-        try In_channel.with_open_bin file (Serialize.deserialize DeserializeEnv)
-        with Serialize.DeserializationError err ->
-          prerr_endline (Error.pretty (Error.DeserializationError err));
-          exit 1)
+        try
+          In_channel.with_open_bin file (Serialize.deserialize DeserializeEnv)
+        with
+        | Serialize.DeserializationError err ->
+            prerr_endline (Error.pretty (Error.DeserializationError err));
+            exit 1)
   in
 
   let eval_binding name = function
@@ -192,6 +205,9 @@ let () =
                    ^ "': Unhandled effect: " ^ effect);
                   exit 1
           end
+    | `File filename ->
+      let contents = In_channel.with_open_bin filename In_channel.input_all in
+      Syntax.String contents
   in
 
   let initial_env =

@@ -965,7 +965,7 @@ let serialize target out_channel =
       write_int state main_index
   | SerializeCont cont ->
       write_cont state cont;
-      write_environments ();
+      write_environments ()
 
 type 'r cont_result =
   | Value : value cont_result
