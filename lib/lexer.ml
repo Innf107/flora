@@ -50,10 +50,7 @@ let advance : lex_state -> unit =
 
 let advance_whitespace state : unit = state.start_pos <- state.end_pos
 
-let next_char state =
-  let char = peek_char state in
-  advance state;
-  char
+let indentation_at pos = Lexing.(pos.pos_cnum - pos.pos_bol)
 
 let ident_of_string = function
   | "let" -> Parser.LET
@@ -195,14 +192,27 @@ and lex_leading_whitespace state =
   | _ when state.is_start_of_block ->
       state.is_start_of_block <- false;
       (* TODO: compute the indentation *)
-      state.block_indentation <- Util.todo __LOC__ :: state.block_indentation;
-      SEMI
-  | _ -> lex state
+      state.block_indentation <- indentation_at state.start_pos :: state.block_indentation;
+      lex state
+  | _ -> 
+      match state.block_indentation with
+      | [] -> raise (LexicalError TooManyClosedBlocks)
+      | (indentation :: _) -> 
+        if indentation_at state.start_pos <= indentation then
+          SEMI
+        else
+          lex state
 
 and lex_line_comment state =
-  match next_char state with
-  | Some '\n' -> lex state
-  | _ -> lex_line_comment state
+  match peek_char state with
+  | Some '\n' -> 
+    advance state;
+    advance_whitespace state;
+    lex_leading_whitespace state
+  | _ -> 
+    advance state;
+    advance_whitespace state;
+    lex_line_comment state
 
 and lex_ident accum state =
   match peek_char state with
@@ -247,9 +257,8 @@ let run ~filename string =
         Lexing.{ pos_fname = filename; pos_lnum = 0; pos_bol = 0; pos_cnum = 0 };
       end_pos =
         Lexing.{ pos_fname = filename; pos_lnum = 0; pos_bol = 0; pos_cnum = 0 };
-      is_start_of_block = false;
-      block_indentation = [ 0 ];
-      (* TODO: Should this be 0 or 1?*)
+      is_start_of_block = true;
+      block_indentation = [ ];
     }
   in
   fun () ->

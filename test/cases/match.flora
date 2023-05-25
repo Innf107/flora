@@ -3,6 +3,6 @@
 let stringJoin(separator, strings) = match strings {
     [] -> ""
     [str] -> str
-    (str : rest) -> str ~ separator ~ stringJoin(separator, rest);
+    (str : rest) -> str ~ separator ~ stringJoin(separator, rest)
 }
 stringJoin(", ", ["test", "abc", "123"])
