@@ -18,6 +18,8 @@ let pretty = function
       | UnterminatedString -> "Lexical error: Unterminated string literal"
       | UnexpectedChar char ->
           Printf.sprintf "Lexical error: Unexpected character: '%c'" char
+      | TooManyClosedBlocks ->
+        "Lexical error: More blocks closed than opened"
     end
   | ParseError -> "Syntax error"
   | EvalError (loc, error) -> Loc.pretty loc ^ ": " ^ begin match error with 

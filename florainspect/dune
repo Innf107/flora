@@ -1,0 +1,4 @@
+(executable
+ (public_name florainspect)
+ (name main)
+ (libraries flora))

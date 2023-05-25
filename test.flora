@@ -1,0 +1,6 @@
+
+let f(x) = {
+    let y = x
+    x * y
+}
+f(5)

@@ -4,6 +4,7 @@ type lexical_error =
   | UnexpectedChar of char
   | UnexpectedEOF
   | UnterminatedString
+  | TooManyClosedBlocks
 
 exception LexicalError of lexical_error
 
@@ -16,6 +17,8 @@ type lex_state = {
   mutable buffer_index : int;
   mutable start_pos : Lexing.position;
   mutable end_pos : Lexing.position;
+  mutable block_indentation : int list;
+  mutable is_start_of_block : bool;
 }
 
 let peek_char : lex_state -> char option =
@@ -91,6 +94,10 @@ let rec lex state =
   | None -> Parser.EOF
   | Some char -> (
       match char with
+      | '\n' ->
+          advance state;
+          advance_whitespace state;
+          lex_leading_whitespace state
       | char when is_whitespace char ->
           advance state;
           advance_whitespace state;
@@ -107,8 +114,15 @@ let rec lex state =
       | '\\' -> advance_emit LAMBDA
       | '(' -> advance_emit LPAREN
       | ')' -> advance_emit RPAREN
-      | '{' -> advance_emit LBRACE
-      | '}' -> advance_emit RBRACE
+      | '{' ->
+          advance state;
+          state.is_start_of_block <- true;
+          LBRACE
+      | '}' -> begin
+          match state.block_indentation with
+          | _ :: rest -> advance_emit RBRACE
+          | [] -> raise (LexicalError TooManyClosedBlocks)
+        end
       | '[' -> advance_emit LBRACKET
       | ']' -> advance_emit RBRACKET
       | '+' -> advance_emit PLUS
@@ -172,6 +186,19 @@ let rec lex state =
       | ',' -> advance_emit COMMA
       | char -> raise (LexicalError (UnexpectedChar char)))
 
+and lex_leading_whitespace state =
+  match peek_char state with
+  | Some char when is_whitespace char ->
+      advance state;
+      advance_whitespace state;
+      lex_leading_whitespace state
+  | _ when state.is_start_of_block ->
+      state.is_start_of_block <- false;
+      (* TODO: compute the indentation *)
+      state.block_indentation <- Util.todo __LOC__ :: state.block_indentation;
+      SEMI
+  | _ -> lex state
+
 and lex_line_comment state =
   match next_char state with
   | Some '\n' -> lex state
@@ -220,6 +247,9 @@ let run ~filename string =
         Lexing.{ pos_fname = filename; pos_lnum = 0; pos_bol = 0; pos_cnum = 0 };
       end_pos =
         Lexing.{ pos_fname = filename; pos_lnum = 0; pos_bol = 0; pos_cnum = 0 };
+      is_start_of_block = false;
+      block_indentation = [ 0 ];
+      (* TODO: Should this be 0 or 1?*)
     }
   in
   fun () ->

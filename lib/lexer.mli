@@ -2,6 +2,7 @@ type lexical_error =
   | UnexpectedChar of char
   | UnexpectedEOF
   | UnterminatedString
+  | TooManyClosedBlocks
 
 exception LexicalError of lexical_error
 
