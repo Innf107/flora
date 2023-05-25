@@ -5,4 +5,4 @@
  (preprocess
   (pps js_of_ocaml-ppx))
  (js_of_ocaml
-  (flags --enable=effects --target-env browser)))
+  (flags --target-env browser)))
