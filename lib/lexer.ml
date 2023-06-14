@@ -49,7 +49,6 @@ let advance : lex_state -> unit =
   end
 
 let advance_whitespace state : unit = state.start_pos <- state.end_pos
-
 let indentation_at pos = Lexing.(pos.pos_cnum - pos.pos_bol)
 
 let ident_of_string = function
@@ -116,9 +115,13 @@ let rec lex state =
           state.is_start_of_block <- true;
           LBRACE
       | '}' -> begin
-          match state.block_indentation with
-          | _ :: rest -> advance_emit RBRACE
-          | [] -> raise (LexicalError TooManyClosedBlocks)
+          if state.is_start_of_block then advance_emit RBRACE
+          else
+            match state.block_indentation with
+            | _ :: rest ->
+                state.block_indentation <- rest;
+                advance_emit RBRACE
+            | [] -> raise (LexicalError TooManyClosedBlocks)
         end
       | '[' -> advance_emit LBRACKET
       | ']' -> advance_emit RBRACKET
@@ -192,27 +195,26 @@ and lex_leading_whitespace state =
   | _ when state.is_start_of_block ->
       state.is_start_of_block <- false;
       (* TODO: compute the indentation *)
-      state.block_indentation <- indentation_at state.start_pos :: state.block_indentation;
+      state.block_indentation <-
+        indentation_at state.start_pos :: state.block_indentation;
       lex state
-  | _ -> 
+  | _ -> (
       match state.block_indentation with
       | [] -> raise (LexicalError TooManyClosedBlocks)
-      | (indentation :: _) -> 
-        if indentation_at state.start_pos <= indentation then
-          SEMI
-        else
-          lex state
+      | indentation :: _ ->
+          if indentation_at state.start_pos <= indentation then SEMI
+          else lex state)
 
 and lex_line_comment state =
   match peek_char state with
-  | Some '\n' -> 
-    advance state;
-    advance_whitespace state;
-    lex_leading_whitespace state
-  | _ -> 
-    advance state;
-    advance_whitespace state;
-    lex_line_comment state
+  | Some '\n' ->
+      advance state;
+      advance_whitespace state;
+      lex_leading_whitespace state
+  | _ ->
+      advance state;
+      advance_whitespace state;
+      lex_line_comment state
 
 and lex_ident accum state =
   match peek_char state with
@@ -258,7 +260,7 @@ let run ~filename string =
       end_pos =
         Lexing.{ pos_fname = filename; pos_lnum = 0; pos_bol = 0; pos_cnum = 0 };
       is_start_of_block = true;
-      block_indentation = [ ];
+      block_indentation = [];
     }
   in
   fun () ->
