@@ -28,19 +28,32 @@ let files = lines(!find (scriptLocal("cases")) "-name" "*.flora")
 for(files, \file -> {
     let expectation = !grep "-Po" "(?<=-- EXPECT: ).+" file
 
-    let result = !_build/default/bin/main.exe file
-
-    if result == expectation then {
-        !echo "-e" ("\x1b[32m[" ~ file ~ "]: passed\x1b[0m")
-        ()
-    } else {
-        errors := errors! + 1
-        !echo "-e" ("\x1b[31m[" ~ file ~ "]: FAILED!")
-        !echo "-e" ("EXPECTED: " ~ expectation)
-        !echo "-e" ("ACTUAL: " ~ result ~ "\x1b[0m")
-        ()
+    let result = try { 
+        Passed (!_build/default/bin/main.exe file)
+    } with {
+        CommandFailure(failure) -> Failed (failure.stdout)
     }
-    ()
+
+
+    let onError(result) = {
+        errors := errors! + 1
+        !echo "-e" ("\x1b[31m[" ~ file ~ "]: FAILED!"
+            ~ "\nEXPECTED: " ~ expectation
+            ~ "\nACTUAL: " ~ result ~ "\x1b[0m")
+        ()
+
+    }
+    match result {
+        Passed(result) -> {
+            if result == expectation then {
+                !echo "-e" ("\x1b[32m[" ~ file ~ "]: passed\x1b[0m")
+                ()
+            } else {
+                onError(result)
+            }
+        }
+        Failed(err) -> onError(err)
+    }
 })
 
 if errors! == 0 then {

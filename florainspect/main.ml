@@ -35,7 +35,7 @@ let () =
                     match token with
                     | Flora.Parser.EOF -> "EOF"
                     | IDENT ident -> "ident(" ^ ident ^ ")"
-                    | NUMBER number -> "number(" ^ Float.to_string number ^ ")"
+                    | NUMBER number -> "number(" ^ Flora.Util.float_to_string number ^ ")"
                     | STRING str -> "string(" ^ str ^ ")"
                     | LPAREN -> "("
                     | RPAREN -> ")"

@@ -38,7 +38,7 @@ let string str target =
   output_string target str;
   output_string target "\""
 
-let number float target = output_string target (Float.to_string float)
+let number float target = output_string target (Util.float_to_string float)
 
 let list writer_from_item list target =
   output_string target "[";

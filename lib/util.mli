@@ -13,3 +13,5 @@ val traverse_option : ('a -> 'b option) -> 'a list -> 'b list option
 
 val compose : ('a -> 'a) list -> 'a -> 'a
 val compose_seq : ('a -> 'a) Seq.t -> 'a -> 'a
+
+val float_to_string : float -> string

@@ -24,3 +24,9 @@ let compose list =
 
 let compose_seq seq =
   Seq.fold_left (fun rest trans x -> trans (rest x)) Fun.id seq
+
+let float_to_string f =
+  if Float.is_integer f then
+    Int.to_string (Float.to_int f)
+  else
+    Float.to_string f

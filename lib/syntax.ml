@@ -144,7 +144,7 @@ let pretty_primop = function
   | DynamicVar -> "dynamicVar"
 
 let pretty_literal = function
-  | NumberLit f -> string_of_float f
+  | NumberLit f -> Util.float_to_string f
   | StringLit str -> "\"" ^ str ^ "\""
   | NilLit -> "nil"
   | BoolLit bool -> string_of_bool bool
@@ -166,7 +166,7 @@ let pretty_binop : binop -> string = function
   | `And -> "&&"
 
 let rec pretty_value = function
-  | Number f -> string_of_float f
+  | Number f -> Util.float_to_string f
   | String str -> "\"" ^ str ^ "\""
   | Bool bool -> string_of_bool bool
   | List list -> "[" ^ String.concat ", " (List.map pretty_value list) ^ "]"

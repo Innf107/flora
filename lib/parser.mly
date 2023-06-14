@@ -62,8 +62,12 @@ sep_trailing(sep, p):
 | p                             { [$1] }
 | p sep sep_trailing(sep, p)    { $1 :: $3 }
 
+some(p):
+| p                             { [] }
+| p some(p)                     { $1 :: $2 }
+
 main:
-| sep_trailing(";", statement) EOF { $1 }
+| sep_trailing(some(";"+), statement) EOF { $1 }
 
 expr:
 | expr1 binop0 expr { Binop(loc $loc, $1, $2, $3) }
@@ -123,8 +127,8 @@ expr_leaf:
 | "λ" "(" sep_trailing(",", pattern) ")" "->" expr { Lambda(loc $loc, $3, $6) }
 | "if" expr  "then" expr "else" expr { If(loc $loc, $2, $4, $6) }
 | "perform" IDENT "(" sep_trailing(",", expr) ")" { Perform(loc $loc, $2, $4) }
-| "handle" expr "{" sep_trailing(";", handle_branch) "}" { Handle(loc $loc, $2, $4) }
-| "match" expr "{" sep_trailing(";", match_branch) "}" { Match(loc $loc, $2, $4) }
+| "handle" expr "{" sep_trailing(";"+, handle_branch) "}" { Handle(loc $loc, $2, $4) }
+| "match" expr "{" sep_trailing(";"+, match_branch) "}" { Match(loc $loc, $2, $4) }
 | "(" expr ")" { $2 }
 | "{" record_or_sequence "}" { $2 }
 | "[" sep_trailing(",", expr) "]" { ListLiteral(loc $loc, $2) }
@@ -134,7 +138,7 @@ record_or_sequence:
 | IDENT "=" expr                                        { RecordLiteral(loc $loc, [($1, $3)]) }
 | IDENT "=" expr "," sep_trailing(",", record_def)      { RecordLiteral(loc $loc, (($1, $3) :: $5)) } 
 | statement                                             { Sequence([$1])}               
-| statement ";" sep_trailing(";", statement)            { Sequence($1 :: $3) }
+| statement ";"+ sep_trailing(";"+, statement)          { Sequence($1 :: $3) }
 
 handle_branch:
 | IDENT "(" sep_trailing(",", pattern) ")" IDENT "->" expr { ($1, $3, $5, $7) }
