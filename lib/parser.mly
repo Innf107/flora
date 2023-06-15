@@ -67,7 +67,7 @@ some(p):
 | p some(p)                     { $1 :: $2 }
 
 main:
-| sep_trailing(some(";"+), statement) EOF { $1 }
+| ";"* sep_trailing(some(";"+), statement) EOF { $2 }
 
 expr:
 | expr1 binop0 expr { Binop(loc $loc, $1, $2, $3) }
@@ -125,7 +125,7 @@ expr_leaf:
 | expr_leaf "(" sep_trailing(",", expr) ")" { App(loc $loc, $1, $3) }
 | "λ" pattern_leaf "->" expr { Lambda(loc $loc, [$2], $4) }
 | "λ" "(" sep_trailing(",", pattern) ")" "->" expr { Lambda(loc $loc, $3, $6) }
-| "if" expr  "then" expr "else" expr { If(loc $loc, $2, $4, $6) }
+| "if" expr ";"* "then" expr ";"* "else" expr { If(loc $loc, $2, $5, $8) }
 | "perform" IDENT "(" sep_trailing(",", expr) ")" { Perform(loc $loc, $2, $4) }
 | "handle" expr "{" sep_trailing(";"+, handle_branch) "}" { Handle(loc $loc, $2, $4) }
 | "match" expr "{" sep_trailing(";"+, match_branch) "}" { Match(loc $loc, $2, $4) }

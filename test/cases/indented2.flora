@@ -1,0 +1,8 @@
+           
+            let scriptImports = dynamicVar("scriptImports")
+
+            if scriptImports == nil then
+                "a"
+            else
+                stringJoin("", map(\import -> "<script src=" ~ import ~ "></script>", scriptImports))
+                -- EXPECT: a

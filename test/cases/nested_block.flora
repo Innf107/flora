@@ -1,0 +1,10 @@
+let x = {
+    let y = 5 +
+        4
+    let z = { 1 + 
+        2 
+    }
+    y + z
+}
+x
+-- EXPECT: 12

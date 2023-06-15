@@ -1,0 +1,8 @@
+-- EXPECT: 10
+    let x = 5
+    
+    let y = {
+        let z = 4
+        z + 1
+    }
+    x + y

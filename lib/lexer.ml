@@ -12,13 +12,16 @@ let unexpected = function
   | None -> raise (LexicalError UnexpectedEOF)
   | Some char -> raise (LexicalError (UnexpectedChar char))
 
+type indentation_state =
+  | Opening
+  | Found of int
+
 type lex_state = {
   buffer : Bytes.t;
   mutable buffer_index : int;
   mutable start_pos : Lexing.position;
   mutable end_pos : Lexing.position;
-  mutable block_indentation : int list;
-  mutable is_start_of_block : bool;
+  mutable block_indentation : indentation_state list;
 }
 
 let peek_char : lex_state -> char option =
@@ -26,6 +29,13 @@ let peek_char : lex_state -> char option =
   if state.buffer_index >= Bytes.length state.buffer then None
   else
     let char = Bytes.get state.buffer state.buffer_index in
+    Some char
+
+let peek_char2 : lex_state -> char option =
+ fun state ->
+  if state.buffer_index + 1 >= Bytes.length state.buffer then None
+  else
+    let char = Bytes.get state.buffer (state.buffer_index + 1) in
     Some char
 
 let advance : lex_state -> unit =
@@ -50,6 +60,14 @@ let advance : lex_state -> unit =
 
 let advance_whitespace state : unit = state.start_pos <- state.end_pos
 let indentation_at pos = Lexing.(pos.pos_cnum - pos.pos_bol)
+
+let open_block state =
+  state.block_indentation <- Opening :: state.block_indentation
+
+let close_block state =
+  match state.block_indentation with
+  | _ :: rest -> state.block_indentation <- rest
+  | [] -> raise (LexicalError TooManyClosedBlocks)
 
 let ident_of_string = function
   | "let" -> Parser.LET
@@ -112,17 +130,12 @@ let rec lex state =
       | ')' -> advance_emit RPAREN
       | '{' ->
           advance state;
-          state.is_start_of_block <- true;
+          open_block state;
           LBRACE
-      | '}' -> begin
-          if state.is_start_of_block then advance_emit RBRACE
-          else
-            match state.block_indentation with
-            | _ :: rest ->
-                state.block_indentation <- rest;
-                advance_emit RBRACE
-            | [] -> raise (LexicalError TooManyClosedBlocks)
-        end
+      | '}' ->
+          advance state;
+          close_block state;
+          RBRACE
       | '[' -> advance_emit LBRACKET
       | ']' -> advance_emit RBRACKET
       | '+' -> advance_emit PLUS
@@ -187,26 +200,32 @@ let rec lex state =
       | char -> raise (LexicalError (UnexpectedChar char)))
 
 and lex_leading_whitespace state =
-  match peek_char state with
-  | Some char when is_whitespace char ->
+  match (peek_char state, peek_char2 state) with
+  | Some char, _ when is_whitespace char ->
       advance state;
       advance_whitespace state;
       lex_leading_whitespace state
-  | _ when state.is_start_of_block ->
-      state.is_start_of_block <- false;
-      (* TODO: compute the indentation *)
-      state.block_indentation <-
-        indentation_at state.start_pos :: state.block_indentation;
-      lex state
-  | _ -> (
+  (* Comments should not have an impact on layout *)
+  | Some '-', Some '-' ->
+      advance state;
+      advance state;
+      advance_whitespace state;
+      lex_line_comment state
+  | _ -> begin
       match state.block_indentation with
       | [] -> raise (LexicalError TooManyClosedBlocks)
-      | indentation :: _ ->
+      | Opening :: rest ->
+          state.block_indentation <-
+            Found (indentation_at state.start_pos) :: rest;
+          lex state
+      | Found indentation :: _ ->
           if indentation_at state.start_pos <= indentation then SEMI
-          else lex state)
+          else lex state
+    end
 
 and lex_line_comment state =
   match peek_char state with
+  | None -> EOF
   | Some '\n' ->
       advance state;
       advance_whitespace state;
@@ -256,13 +275,19 @@ let run ~filename string =
       buffer = String.to_bytes string;
       buffer_index = 0;
       start_pos =
-        Lexing.{ pos_fname = filename; pos_lnum = 0; pos_bol = 0; pos_cnum = 0 };
+        Lexing.{ pos_fname = filename; pos_lnum = 0; pos_bol = 0; pos_cnum = 1 };
       end_pos =
-        Lexing.{ pos_fname = filename; pos_lnum = 0; pos_bol = 0; pos_cnum = 0 };
-      is_start_of_block = true;
-      block_indentation = [];
+        Lexing.{ pos_fname = filename; pos_lnum = 0; pos_bol = 0; pos_cnum = 1 };
+      block_indentation = [ Opening ];
     }
   in
+  let initial_token = ref true in
   fun () ->
-    let token = lex state in
+    let token =
+      if !initial_token then begin
+        initial_token := false;
+        lex_leading_whitespace state
+      end
+      else lex state
+    in
     (token, state.start_pos, state.end_pos)
