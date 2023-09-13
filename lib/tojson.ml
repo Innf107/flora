@@ -34,8 +34,8 @@ let bool bool target = output_string target (string_of_bool bool)
 
 let string str target =
   output_string target "\"";
-  (* TODO: Escape the string *)
-  output_string target str;
+  (* TODO: Make sure that these are valid json escapes *)
+  output_string target (String.escaped str);
   output_string target "\""
 
 let number float target = output_string target (Util.float_to_string float)
