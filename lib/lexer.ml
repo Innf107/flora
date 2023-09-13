@@ -124,7 +124,24 @@ let rec lex state =
           lex_integer [ char ] state
       | '"' ->
           advance state;
-          lex_string [] state
+          begin
+            match peek_char state with
+            | None -> raise (LexicalError UnterminatedString)
+            | Some '"' ->
+                advance state;
+                begin
+                  match peek_char state with
+                  | Some '"' -> 
+                    advance state;
+                    lex_triple_string [] state
+                  | None
+                  | Some _ ->
+                      STRING ""
+                end
+                (* This is a regular string literal so we
+                   don't advance and let lex_string take over *)
+            | Some _ -> lex_string [] state
+          end
       | '\\' -> advance_emit LAMBDA
       | '(' -> advance_emit LPAREN
       | ')' -> advance_emit RPAREN
@@ -268,6 +285,34 @@ and lex_string accum state =
   | Some char ->
       advance state;
       lex_string (char :: accum) state
+
+and lex_triple_string accum state =
+  match peek_char state with
+  | None -> raise (LexicalError UnterminatedString)
+  | Some '"' ->
+      advance state;
+      begin
+        match peek_char state with
+        | None -> raise (LexicalError UnterminatedString)
+        | Some '"' ->
+            advance state;
+            begin
+              match peek_char state with
+              | Some '"' ->
+                  advance state;
+                  STRING (string_of_reverse_list accum)
+              | None -> raise (LexicalError UnterminatedString)
+              | Some char ->
+                  advance state;
+                  lex_triple_string (char :: '"' :: '"' :: accum) state
+            end
+        | Some char ->
+            advance state;
+            lex_triple_string (char :: '"' :: accum) state
+      end
+  | Some char ->
+      advance state;
+      lex_triple_string (char :: accum) state
 
 let run ~filename string =
   let state : lex_state =
