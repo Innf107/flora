@@ -32,7 +32,6 @@ let loc (start_pos, end_pos) =
 %token MATCH "match"
 %token AS "as"
 %token EQUALS "="
-%token SEMI ";"
 %token COMMA ","
 %token LAMBDA "λ"
 %token ARROW "->"
@@ -46,7 +45,7 @@ let loc (start_pos, end_pos) =
 %token MINUS "-"
 %token STAR "*"
 %token SLASH "/"
-%token COLON ":"
+%token DOUBLECOLON "::"
 %token TILDE "~"
 %token AND "&&"
 %token OR "||"
@@ -67,7 +66,7 @@ some(p):
 | p some(p)                     { $1 :: $2 }
 
 main:
-| ";"* sep_trailing(some(";"+), statement) EOF { $2 }
+| statement* EOF { $1 }
 
 expr:
 | expr1 binop0 expr { Binop(loc $loc, $1, $2, $3) }
@@ -81,7 +80,7 @@ expr1:
 | expr2 { $1 }
 
 binop1:
-| ":" { `Cons }
+| "::" { `Cons }
 
 expr2:
 | expr2 binop2 expr3 { Binop(loc $loc, $1, $2, $3) }
@@ -125,20 +124,22 @@ expr_leaf:
 | expr_leaf "(" sep_trailing(",", expr) ")" { App(loc $loc, $1, $3) }
 | "λ" pattern_leaf "->" expr { Lambda(loc $loc, [$2], $4) }
 | "λ" "(" sep_trailing(",", pattern) ")" "->" expr { Lambda(loc $loc, $3, $6) }
-| "if" expr ";"* "then" expr ";"* "else" expr { If(loc $loc, $2, $5, $8) }
+| "if" expr "then" block_expr "else" block_expr { If(loc $loc, $2, $4, $6) }
 | "perform" IDENT "(" sep_trailing(",", expr) ")" { Perform(loc $loc, $2, $4) }
-| "handle" expr "{" sep_trailing(";"+, handle_branch) "}" { Handle(loc $loc, $2, $4) }
-| "match" expr "{" sep_trailing(";"+, match_branch) "}" { Match(loc $loc, $2, $4) }
+| "handle" expr "{" sep_trailing(",", handle_branch) "}" { Handle(loc $loc, $2, $4) }
+| "match" expr "{" sep_trailing(",", match_branch) "}" { Match(loc $loc, $2, $4) }
 | "(" expr ")" { $2 }
 | "{" record_or_sequence "}" { $2 }
 | "[" sep_trailing(",", expr) "]" { ListLiteral(loc $loc, $2) }
+
+%inline block_expr:
+    "{" statement* "}" { Sequence $2 }
 
 record_or_sequence:
 |                                                       { RecordLiteral(loc $loc, []) }
 | IDENT "=" expr                                        { RecordLiteral(loc $loc, [($1, $3)]) }
 | IDENT "=" expr "," sep_trailing(",", record_def)      { RecordLiteral(loc $loc, (($1, $3) :: $5)) } 
-| statement                                             { Sequence([$1])}               
-| statement ";"+ sep_trailing(";"+, statement)          { Sequence($1 :: $3) }
+| statement statement*                                  { Sequence($1 :: $2) }
 
 handle_branch:
 | IDENT "(" sep_trailing(",", pattern) ")" IDENT "->" expr { ($1, $3, $5, $7) }
@@ -159,8 +160,8 @@ pattern:
 | pattern1             { $1 }
 
 pattern1:
-| pattern2 ":" pattern1 { ConsPat(loc $loc, $1, $3) }
-| pattern2              { $1 }
+| pattern2 "::" pattern1    { ConsPat(loc $loc, $1, $3) }
+| pattern2                  { $1 }
 
 pattern2:
 | pattern_leaf "as" IDENT { AsPat(loc $loc, $1, $3) }

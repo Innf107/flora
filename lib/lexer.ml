@@ -12,16 +12,11 @@ let unexpected = function
   | None -> raise (LexicalError UnexpectedEOF)
   | Some char -> raise (LexicalError (UnexpectedChar char))
 
-type indentation_state =
-  | Opening
-  | Found of int
-
 type lex_state = {
   buffer : Bytes.t;
   mutable buffer_index : int;
   mutable start_pos : Lexing.position;
   mutable end_pos : Lexing.position;
-  mutable block_indentation : indentation_state list;
 }
 
 let peek_char : lex_state -> char option =
@@ -60,14 +55,6 @@ let advance : lex_state -> unit =
 
 let advance_whitespace state : unit = state.start_pos <- state.end_pos
 let indentation_at pos = Lexing.(pos.pos_cnum - pos.pos_bol)
-
-let open_block state =
-  state.block_indentation <- Opening :: state.block_indentation
-
-let close_block state =
-  match state.block_indentation with
-  | _ :: rest -> state.block_indentation <- rest
-  | [] -> raise (LexicalError TooManyClosedBlocks)
 
 let ident_of_string = function
   | "let" -> Parser.LET
@@ -108,10 +95,6 @@ let rec lex state =
   | None -> Parser.EOF
   | Some char -> (
       match char with
-      | '\n' ->
-          advance state;
-          advance_whitespace state;
-          lex_leading_whitespace state
       | char when is_whitespace char ->
           advance state;
           advance_whitespace state;
@@ -146,13 +129,9 @@ let rec lex state =
       | '(' -> advance_emit LPAREN
       | ')' -> advance_emit RPAREN
       | '{' ->
-          advance state;
-          open_block state;
-          LBRACE
+          advance_emit LBRACE
       | '}' ->
-          advance state;
-          close_block state;
-          RBRACE
+          advance_emit RBRACE
       | '[' -> advance_emit LBRACKET
       | ']' -> advance_emit RBRACKET
       | '+' -> advance_emit PLUS
@@ -196,7 +175,12 @@ let rec lex state =
             | Some '=' -> advance_emit GREATEREQUAL
             | _ -> GREATER
           end
-      | ':' -> advance_emit COLON
+      | ':' -> 
+        advance state;
+        begin match peek_char state with
+        | Some ':' -> advance_emit DOUBLECOLON
+        | other -> unexpected other
+        end
       | '~' -> advance_emit TILDE
       | '&' ->
           advance state;
@@ -212,33 +196,8 @@ let rec lex state =
             | Some '|' -> advance_emit OR
             | other -> PIPE
           end
-      | ';' -> advance_emit SEMI
       | ',' -> advance_emit COMMA
       | char -> raise (LexicalError (UnexpectedChar char)))
-
-and lex_leading_whitespace state =
-  match (peek_char state, peek_char2 state) with
-  | Some char, _ when is_whitespace char ->
-      advance state;
-      advance_whitespace state;
-      lex_leading_whitespace state
-  (* Comments should not have an impact on layout *)
-  | Some '-', Some '-' ->
-      advance state;
-      advance state;
-      advance_whitespace state;
-      lex_line_comment state
-  | _ -> begin
-      match state.block_indentation with
-      | [] -> raise (LexicalError TooManyClosedBlocks)
-      | Opening :: rest ->
-          state.block_indentation <-
-            Found (indentation_at state.start_pos) :: rest;
-          lex state
-      | Found indentation :: _ ->
-          if indentation_at state.start_pos <= indentation then SEMI
-          else lex state
-    end
 
 and lex_line_comment state =
   match peek_char state with
@@ -246,7 +205,7 @@ and lex_line_comment state =
   | Some '\n' ->
       advance state;
       advance_whitespace state;
-      lex_leading_whitespace state
+      lex state
   | _ ->
       advance state;
       advance_whitespace state;
@@ -323,7 +282,6 @@ let run ~filename string =
         Lexing.{ pos_fname = filename; pos_lnum = 0; pos_bol = 0; pos_cnum = 1 };
       end_pos =
         Lexing.{ pos_fname = filename; pos_lnum = 0; pos_bol = 0; pos_cnum = 1 };
-      block_indentation = [ Opening ];
     }
   in
   let initial_token = ref true in
@@ -331,7 +289,7 @@ let run ~filename string =
     let token =
       if !initial_token then begin
         initial_token := false;
-        lex_leading_whitespace state
+        lex state
       end
       else lex state
     in

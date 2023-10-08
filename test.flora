@@ -1,7 +1,9 @@
            
-            let scriptImports = dynamicVar("scriptImports")
+let map(f, list) = match list {
+    [] -> [],
+    (x :: rest) -> {
+        f(x) :: map(f, rest)
+    }
+}
 
-            if scriptImports == nil then
-                ""
-            else
-                stringJoin("", map(\import -> "<script src=" ~ import ~ "></script>", scriptImports))
+map(\x -> x, [1, 2, 3])

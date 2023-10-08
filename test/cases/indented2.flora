@@ -1,8 +1,9 @@
            
             let scriptImports = dynamicVar("scriptImports")
 
-            if scriptImports == nil then
+            if scriptImports == nil then {
                 "a"
-            else
+            } else {
                 stringJoin("", map(\import -> "<script src=" ~ import ~ "></script>", scriptImports))
                 -- EXPECT: a
+            }
