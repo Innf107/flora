@@ -7,3 +7,5 @@ type t = {
 }
 
 val pretty : t -> string
+
+val from_positions : Lexing.position -> Lexing.position -> t

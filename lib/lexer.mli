@@ -5,10 +5,4 @@ type lexical_error =
 
 exception LexicalError of lexical_error
 
-type lex_state
-
-val run :
-  filename:string ->
-  string ->
-  unit ->
-  Parser.token * Lexing.position * Lexing.position
+val lex : Sedlexing.lexbuf -> Parser.token

@@ -1,6 +1,7 @@
 (library
  (name flora)
- (libraries menhirLib))
+ (libraries menhirLib sedlex)
+ (preprocess (pps sedlex.ppx)))
 
 (menhir
  (modules parser))

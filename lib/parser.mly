@@ -1,14 +1,7 @@
 %{
 open Syntax
 
-let loc (start_pos, end_pos) = 
-    Lexing.(Loc.{ 
-        file = start_pos.pos_fname;
-        start_line = start_pos.pos_lnum + 1;
-        start_column = start_pos.pos_cnum - start_pos.pos_bol + 1;
-        end_line = end_pos.pos_lnum + 1;
-        end_column = end_pos.pos_cnum - end_pos.pos_bol + 1;
-    })
+let loc (start_pos, end_pos) = Loc.from_positions start_pos end_pos
 %}
 
 %token <string> IDENT
