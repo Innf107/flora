@@ -1,13 +1,13 @@
 type t =
   | LexicalError of Lexer.lexical_error
-  | ParseError (* TODO: Carry the source location of the parse error *)
+  | ParseError of Loc.t
   | EvalError of Loc.t * Eval.eval_error
   | DeserializationError of Serialize.deserialization_error
 
 let handle ~handler cont =
   try cont () with
   | Lexer.LexicalError error -> handler (LexicalError error)
-  | Parser.Error -> handler ParseError
+  | Driver.ParseError loc -> handler (ParseError loc)
   | Eval.EvalError (loc, error) -> handler (EvalError (loc, error))
   | Serialize.DeserializationError err -> handler (DeserializationError err)
 
@@ -19,7 +19,7 @@ let pretty = function
       | UnexpectedChar (char, loc) ->
           Printf.sprintf "%s: Lexical error: Unexpected character: '%c'" (Loc.pretty loc) char
     end
-  | ParseError -> "Syntax error"
+  | ParseError loc -> Loc.pretty loc ^ ": Syntax error"
   | EvalError (loc, error) -> Loc.pretty loc ^ ": " ^ begin match error with 
     | VarNotFound name -> "Unbound variable: '" ^ name ^ "'" 
     | TryingToCallNonFunction value -> "Trying to call non-function value: " ^ Syntax.pretty_value value
