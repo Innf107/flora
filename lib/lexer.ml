@@ -38,11 +38,9 @@ let rec lex lexbuf =
   | "--", Star (Compl ('\n' | eof)) -> lex lexbuf
   | Opt '-', Plus '0' .. '9', Opt '.', Star '0' .. '9' ->
       NUMBER (float_of_string (lexeme ()))
-  | "\"\"\"", Star any, "\"\"\"" ->
-      STRING
-        (Sedlexing.Utf8.sub_lexeme lexbuf 1
-           (Sedlexing.lexeme_length lexbuf - 2))
-  | "\"\"\"", Star any, eof -> raise (LexicalError UnterminatedString)
+  | "\"\"\"" ->
+    let start_pos, _end_pos = Sedlexing.lexing_positions lexbuf in
+    lex_triple_string lexbuf (Buffer.create 16) start_pos
   | '"', Star (Compl '"'), '"' ->
       STRING
         (Sedlexing.Utf8.sub_lexeme lexbuf 1
@@ -74,5 +72,21 @@ let rec lex lexbuf =
   | '|' -> PIPE
   | ',' -> COMMA
   | eof -> EOF
-  | any -> raise (LexicalError (UnexpectedChar ((Sedlexing.Utf8.sub_lexeme lexbuf 0 1).[0], current_loc lexbuf)))
+  | any ->
+      raise
+        (LexicalError
+           (UnexpectedChar
+              ((Sedlexing.Utf8.sub_lexeme lexbuf 0 1).[0], current_loc lexbuf)))
+  | _ -> assert false
+
+and lex_triple_string lexbuf buffer startpos =
+  match%sedlex lexbuf with
+  | "\"\"\"" ->
+    (* TODO: Somehow convince sedlex to set the start position to the correct value *)
+    STRING (Buffer.contents buffer)
+  | Plus (Compl '"')
+  | '"' ->
+      Buffer.add_string buffer (Sedlexing.Utf8.lexeme lexbuf);
+      lex_triple_string lexbuf buffer startpos;
+  | eof -> raise (LexicalError UnterminatedString)
   | _ -> assert false

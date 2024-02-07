@@ -33,8 +33,9 @@ let () =
               begin
                 fun () ->
                   let rec go () =
+                    let token = next_token () in
                     let str =
-                      match next_token () with
+                      match token with
                       | Flora.Parser.EOF -> "EOF"
                       | IDENT ident -> "ident(" ^ ident ^ ")"
                       | NUMBER number ->
@@ -78,7 +79,7 @@ let () =
                       | PIPE -> "|"
                     in
                     print_endline str;
-                    go ()
+                    if token <> EOF then go ()
                   in
                   go ()
               end

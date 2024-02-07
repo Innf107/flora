@@ -1,0 +1,7 @@
+-- EXPECT: a
+
+let x = """
+    test
+"""
+
+"""a"""

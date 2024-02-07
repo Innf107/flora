@@ -1,9 +1,0 @@
-           
-let map(f, list) = match list {
-    [] -> [],
-    (x :: rest)-> {
-        f(x) :: map(f, rest)
-    }
-}
-
-map(\x -> x, [1, 2, 3])
