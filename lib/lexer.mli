@@ -1,8 +1,7 @@
 type lexical_error =
-  | UnexpectedChar of char
+  | UnexpectedChar of char * Loc.t
   | UnexpectedEOF
   | UnterminatedString
-  | TooManyClosedBlocks
 
 exception LexicalError of lexical_error
 

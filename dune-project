@@ -7,11 +7,11 @@
 (source
  (github Innf107/flora))
 
-(authors "Finn Schneider")
+(authors "welltypedwitch")
 
-(maintainers "Finn Schneider")
+(maintainers "welltypedwitch")
 
-(license LICENSE)
+(license MIT)
 
 (documentation https://url/to/documentation)
 

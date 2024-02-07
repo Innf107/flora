@@ -1,8 +1,8 @@
            
 let map(f, list) = match list {
     [] -> [],
-    (x :: rest) -> {
-        f(x) :: map(f, rest)
+    (x :: rest)-> {
+        f(x) ::: map(f, rest)
     }
 }
 

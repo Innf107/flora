@@ -1,23 +1,41 @@
 open Util
 
+type loc = Loc.t
+
 type lexical_error =
-  | UnexpectedChar of char
+  | UnexpectedChar of char * loc
   | UnexpectedEOF
   | UnterminatedString
-  | TooManyClosedBlocks
 
 exception LexicalError of lexical_error
 
-let unexpected = function
-  | None -> raise (LexicalError UnexpectedEOF)
-  | Some char -> raise (LexicalError (UnexpectedChar char))
-
 type lex_state = {
+  filename : string;
   buffer : Bytes.t;
   mutable buffer_index : int;
   mutable start_pos : Lexing.position;
   mutable end_pos : Lexing.position;
 }
+
+let current_loc lex_state =
+  let start_line = lex_state.start_pos.pos_lnum in
+  let start_column =
+    lex_state.start_pos.pos_cnum - lex_state.start_pos.pos_bol + 1
+  in
+  let end_line = lex_state.end_pos.pos_lnum in
+  let end_column = lex_state.end_pos.pos_cnum - lex_state.end_pos.pos_bol + 1 in
+  Loc.
+    {
+      file = lex_state.filename;
+      start_line;
+      start_column;
+      end_line;
+      end_column;
+    }
+
+let unexpected state = function
+  | None -> raise (LexicalError UnexpectedEOF)
+  | Some char -> raise (LexicalError (UnexpectedChar (char, current_loc state)))
 
 let peek_char : lex_state -> char option =
  fun state ->
@@ -114,9 +132,9 @@ let rec lex state =
                 advance state;
                 begin
                   match peek_char state with
-                  | Some '"' -> 
-                    advance state;
-                    lex_triple_string [] state
+                  | Some '"' ->
+                      advance state;
+                      lex_triple_string [] state
                   | None
                   | Some _ ->
                       STRING ""
@@ -128,10 +146,8 @@ let rec lex state =
       | '\\' -> advance_emit LAMBDA
       | '(' -> advance_emit LPAREN
       | ')' -> advance_emit RPAREN
-      | '{' ->
-          advance_emit LBRACE
-      | '}' ->
-          advance_emit RBRACE
+      | '{' -> advance_emit LBRACE
+      | '}' -> advance_emit RBRACE
       | '[' -> advance_emit LBRACKET
       | ']' -> advance_emit RBRACKET
       | '+' -> advance_emit PLUS
@@ -166,7 +182,7 @@ let rec lex state =
           begin
             match peek_char state with
             | Some '=' -> advance_emit NOTEQUAL
-            | other -> unexpected other
+            | other -> unexpected state other
           end
       | '>' ->
           advance state;
@@ -175,19 +191,20 @@ let rec lex state =
             | Some '=' -> advance_emit GREATEREQUAL
             | _ -> GREATER
           end
-      | ':' -> 
-        advance state;
-        begin match peek_char state with
-        | Some ':' -> advance_emit DOUBLECOLON
-        | other -> unexpected other
-        end
+      | ':' ->
+          advance state;
+          begin
+            match peek_char state with
+            | Some ':' -> advance_emit DOUBLECOLON
+            | other -> unexpected state other
+          end
       | '~' -> advance_emit TILDE
       | '&' ->
           advance state;
           begin
             match peek_char state with
             | Some '&' -> advance_emit AND
-            | other -> unexpected other
+            | other -> unexpected state other
           end
       | '|' ->
           advance state;
@@ -197,7 +214,7 @@ let rec lex state =
             | other -> PIPE
           end
       | ',' -> advance_emit COMMA
-      | char -> raise (LexicalError (UnexpectedChar char)))
+      | char -> unexpected state (Some char))
 
 and lex_line_comment state =
   match peek_char state with
@@ -276,6 +293,7 @@ and lex_triple_string accum state =
 let run ~filename string =
   let state : lex_state =
     {
+      filename;
       buffer = String.to_bytes string;
       buffer_index = 0;
       start_pos =
