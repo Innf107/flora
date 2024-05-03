@@ -3,7 +3,7 @@ open Util
 type loc = Loc.t
 
 type lexical_error =
-  | UnexpectedChar of char * loc
+  | UnexpectedChar of string * loc
   | UnexpectedEOF
   | UnterminatedString
 
@@ -76,7 +76,7 @@ let rec lex lexbuf =
       raise
         (LexicalError
            (UnexpectedChar
-              ((Sedlexing.Utf8.sub_lexeme lexbuf 0 1).[0], current_loc lexbuf)))
+              (lexeme (), current_loc lexbuf)))
   | _ -> assert false
 
 and lex_triple_string lexbuf buffer startpos =

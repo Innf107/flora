@@ -17,7 +17,7 @@ let pretty = function
       | UnexpectedEOF -> "Lexical error: Unexpected end of file"
       | UnterminatedString -> "Lexical error: Unterminated string literal"
       | UnexpectedChar (char, loc) ->
-          Printf.sprintf "%s: Lexical error: Unexpected character: '%c'" (Loc.pretty loc) char
+          Printf.sprintf "%s: Lexical error: Unexpected character: '%s'" (Loc.pretty loc) char
     end
   | ParseError loc -> Loc.pretty loc ^ ": Syntax error"
   | EvalError (loc, error) -> Loc.pretty loc ^ ": " ^ begin match error with 

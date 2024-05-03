@@ -1,5 +1,5 @@
 type lexical_error =
-  | UnexpectedChar of char * Loc.t
+  | UnexpectedChar of string * Loc.t
   | UnexpectedEOF
   | UnterminatedString
 
